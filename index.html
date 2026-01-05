@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>note用 画像リサイズ</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, sans-serif; margin: 24px; }
+    .drop { border: 2px dashed #aaa; padding: 24px; border-radius: 12px; }
+    .row { display: flex; gap: 12px; flex-wrap: wrap; margin: 12px 0; }
+    label { display: inline-flex; gap: 8px; align-items: center; }
+    input[type="number"] { width: 110px; }
+    ul { padding-left: 18px; }
+    button { padding: 10px 14px; }
+    .small { color: #666; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <h1>note用 画像リサイズ（ローカル処理）</h1>
+
+  <div class="drop" id="drop">
+    ここに画像をドロップ（または）
+    <input type="file" id="file" accept="image/*" multiple />
+    <div class="small">※画像はアップロードされません（ブラウザ内で処理します）</div>
+  </div>
+
+  <div class="row">
+    <label>横幅(px)
+      <input type="number" id="targetW" value="1200" min="200" step="10">
+    </label>
+
+    <label>形式
+      <select id="format">
+        <option value="image/jpeg">JPEG</option>
+        <option value="image/webp">WebP</option>
+        <option value="image/png">PNG</option>
+      </select>
+    </label>
+
+    <label>品質（JPEG/WebP）
+      <input type="range" id="quality" min="40" max="95" value="85">
+      <span id="qLabel">0.85</span>
+    </label>
+
+    <label>容量上限(MB)
+      <input type="number" id="maxMB" value="1" min="0" step="0.1">
+    </label>
+
+    <button id="run">変換してダウンロード</button>
+  </div>
+
+  <h3>選択中ファイル</h3>
+  <ul id="list"></ul>
+
+<script>
+  const drop = document.getElementById('drop');
+  const fileInput = document.getElementById('file');
+  const runBtn = document.getElementById('run');
+  const list = document.getElementById('list');
+
+  const targetWEl = document.getElementById('targetW');
+  const formatEl = document.getElementById('format');
+  const qualityEl = document.getElementById('quality');
+  const qLabel = document.getElementById('qLabel');
+  const maxMBEl = document.getElementById('maxMB');
+
+  let files = [];
+
+  qualityEl.addEventListener('input', () => {
+    qLabel.textContent = (qualityEl.value / 100).toFixed(2);
+  });
+
+  function setFiles(fList) {
+    files = Array.from(fList).filter(f => f.type.startsWith('image/'));
+    list.innerHTML = '';
+    for (const f of files) {
+      const li = document.createElement('li');
+      li.textContent = `${f.name} (${(f.size/1024/1024).toFixed(2)} MB)`;
+      list.appendChild(li);
+    }
+  }
+
+  fileInput.addEventListener('change', (e) => setFiles(e.target.files));
+
+  drop.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    drop.style.borderColor = '#333';
+  });
+  drop.addEventListener('dragleave', () => drop.style.borderColor = '#aaa');
+  drop.addEventListener('drop', (e) => {
+    e.preventDefault();
+    drop.style.borderColor = '#aaa';
+    setFiles(e.dataTransfer.files);
+  });
+
+  function blobToDownload(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  function extFromMime(mime) {
+    if (mime === 'image/jpeg') return 'jpg';
+    if (mime === 'image/webp') return 'webp';
+    if (mime === 'image/png') return 'png';
+    return 'img';
+  }
+
+  async function toBlobAsync(canvas, mime, quality) {
+    return new Promise((resolve) => {
+      if (mime === 'image/png') {
+        canvas.toBlob(resolve, mime); // PNGはquality無視
+      } else {
+        canvas.toBlob(resolve, mime, quality);
+      }
+    });
+  }
+
+  async function resizeOne(file, targetW, mime, baseQuality, maxBytes) {
+    const bitmap = await createImageBitmap(file);
+
+    // 比率維持で横幅固定
+    const scale = targetW / bitmap.width;
+    const w = Math.max(1, Math.round(bitmap.width * scale));
+    const h = Math.max(1, Math.round(bitmap.height * scale));
+
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+
+    const ctx = canvas.getContext('2d', { alpha: true });
+    ctx.drawImage(bitmap, 0, 0, w, h);
+
+    // まず指定品質で出力
+    let q = baseQuality;
+    let blob = await toBlobAsync(canvas, mime, q);
+
+    // 容量上限がある & JPEG/WebPなら品質を下げて収める
+    const canAdjust = (mime === 'image/jpeg' || mime === 'image/webp');
+    if (maxBytes > 0 && canAdjust) {
+      // 品質を段階的に下げる（粗すぎず速い）
+      while (blob && blob.size > maxBytes && q > 0.35) {
+        q = Math.max(0.35, q - 0.07);
+        blob = await toBlobAsync(canvas, mime, q);
+      }
+    }
+    return blob;
+  }
+
+  runBtn.addEventListener('click', async () => {
+    if (!files.length) return;
+
+    runBtn.disabled = true;
+    runBtn.textContent = '変換中…';
+
+    try {
+      const targetW = Number(targetWEl.value) || 1200;
+      const mime = formatEl.value;
+      const baseQuality = (Number(qualityEl.value) || 85) / 100;
+      const maxMB = Number(maxMBEl.value) || 0;
+      const maxBytes = maxMB > 0 ? Math.round(maxMB * 1024 * 1024) : 0;
+
+      for (const f of files) {
+        const blob = await resizeOne(f, targetW, mime, baseQuality, maxBytes);
+        if (!blob) continue;
+
+        const ext = extFromMime(mime);
+        const safeName = f.name.replace(/\.[^.]+$/, '');
+        const outName = `${safeName}_note_w${targetW}.${ext}`;
+        blobToDownload(blob, outName);
+      }
+    } finally {
+      runBtn.disabled = false;
+      runBtn.textContent = '変換してダウンロード';
+    }
+  });
+</script>
+</body>
+</html>
