@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>note用 画像リサイズ</title>
+  <title>note用 画像リサイズ（1280×670固定）</title>
   <style>
     body { font-family: system-ui, -apple-system, Segoe UI, sans-serif; margin: 24px; }
     .drop { border: 2px dashed #aaa; padding: 24px; border-radius: 12px; }
@@ -13,10 +13,11 @@
     ul { padding-left: 18px; }
     button { padding: 10px 14px; }
     .small { color: #666; font-size: 12px; }
+    code { background: #f4f4f4; padding: 2px 6px; border-radius: 6px; }
   </style>
 </head>
 <body>
-  <h1>note用 画像リサイズ（ローカル処理）</h1>
+  <h1>画像リサイズ（出力固定: <code>1280×670</code>）</h1>
 
   <div class="drop" id="drop">
     ここに画像をドロップ（または）
@@ -25,10 +26,6 @@
   </div>
 
   <div class="row">
-    <label>横幅(px)
-      <input type="number" id="targetW" value="1200" min="200" step="10">
-    </label>
-
     <label>形式
       <select id="format">
         <option value="image/jpeg">JPEG</option>
@@ -53,12 +50,16 @@
   <ul id="list"></ul>
 
 <script>
+  // ===== 固定出力サイズ =====
+  const OUT_W = 1280;
+  const OUT_H = 670;
+  const OUT_AR = OUT_W / OUT_H;
+
   const drop = document.getElementById('drop');
   const fileInput = document.getElementById('file');
   const runBtn = document.getElementById('run');
   const list = document.getElementById('list');
 
-  const targetWEl = document.getElementById('targetW');
   const formatEl = document.getElementById('format');
   const qualityEl = document.getElementById('quality');
   const qLabel = document.getElementById('qLabel');
@@ -112,27 +113,50 @@
   async function toBlobAsync(canvas, mime, quality) {
     return new Promise((resolve) => {
       if (mime === 'image/png') {
-        canvas.toBlob(resolve, mime); // PNGはquality無視
+        canvas.toBlob(resolve, mime);
       } else {
         canvas.toBlob(resolve, mime, quality);
       }
     });
   }
 
-  async function resizeOne(file, targetW, mime, baseQuality, maxBytes) {
-    const bitmap = await createImageBitmap(file);
+  /**
+   * coverCropRect:
+   * 元画像(bitmapW x bitmapH) から、出力AR(=OUT_AR)に一致する
+   * 中央トリミング矩形 {sx, sy, sw, sh} を返す
+   */
+  function coverCropRect(bitmapW, bitmapH) {
+    const srcAR = bitmapW / bitmapH;
 
-    // 比率維持で横幅固定
-    const scale = targetW / bitmap.width;
-    const w = Math.max(1, Math.round(bitmap.width * scale));
-    const h = Math.max(1, Math.round(bitmap.height * scale));
+    let sw, sh, sx, sy;
+    if (srcAR > OUT_AR) {
+      // 横長すぎ -> 横を切る
+      sh = bitmapH;
+      sw = Math.round(sh * OUT_AR);
+      sx = Math.round((bitmapW - sw) / 2);
+      sy = 0;
+    } else {
+      // 縦長すぎ -> 縦を切る
+      sw = bitmapW;
+      sh = Math.round(sw / OUT_AR);
+      sx = 0;
+      sy = Math.round((bitmapH - sh) / 2);
+    }
+    return { sx, sy, sw, sh };
+  }
+
+  async function resizeOneFixed(file, mime, baseQuality, maxBytes) {
+    const bitmap = await createImageBitmap(file);
+    const { sx, sy, sw, sh } = coverCropRect(bitmap.width, bitmap.height);
 
     const canvas = document.createElement('canvas');
-    canvas.width = w;
-    canvas.height = h;
+    canvas.width = OUT_W;
+    canvas.height = OUT_H;
 
     const ctx = canvas.getContext('2d', { alpha: true });
-    ctx.drawImage(bitmap, 0, 0, w, h);
+
+    // drawImage(source, sx, sy, sw, sh, dx, dy, dw, dh)
+    ctx.drawImage(bitmap, sx, sy, sw, sh, 0, 0, OUT_W, OUT_H);
 
     // まず指定品質で出力
     let q = baseQuality;
@@ -141,7 +165,6 @@
     // 容量上限がある & JPEG/WebPなら品質を下げて収める
     const canAdjust = (mime === 'image/jpeg' || mime === 'image/webp');
     if (maxBytes > 0 && canAdjust) {
-      // 品質を段階的に下げる（粗すぎず速い）
       while (blob && blob.size > maxBytes && q > 0.35) {
         q = Math.max(0.35, q - 0.07);
         blob = await toBlobAsync(canvas, mime, q);
@@ -157,19 +180,222 @@
     runBtn.textContent = '変換中…';
 
     try {
-      const targetW = Number(targetWEl.value) || 1200;
       const mime = formatEl.value;
       const baseQuality = (Number(qualityEl.value) || 85) / 100;
       const maxMB = Number(maxMBEl.value) || 0;
       const maxBytes = maxMB > 0 ? Math.round(maxMB * 1024 * 1024) : 0;
 
       for (const f of files) {
-        const blob = await resizeOne(f, targetW, mime, baseQuality, maxBytes);
+        const blob = await resizeOneFixed(f, mime, baseQuality, maxBytes);
         if (!blob) continue;
 
         const ext = extFromMime(mime);
         const safeName = f.name.replace(/\.[^.]+$/, '');
-        const outName = `${safeName}_note_w${targetW}.${ext}`;
+        const outName = `${safeName}_note_${OUT_W}x${OUT_H}.${ext}`;
+        blobToDownload(blob, outName);
+      }
+    } finally {
+      runBtn.disabled = false;
+      runBtn.textContent = '変換してダウンロード';
+    }
+  });
+</script>
+</body>
+</html>
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>note用 画像リサイズ（1280×670固定）</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, sans-serif; margin: 24px; }
+    .drop { border: 2px dashed #aaa; padding: 24px; border-radius: 12px; }
+    .row { display: flex; gap: 12px; flex-wrap: wrap; margin: 12px 0; }
+    label { display: inline-flex; gap: 8px; align-items: center; }
+    input[type="number"] { width: 110px; }
+    ul { padding-left: 18px; }
+    button { padding: 10px 14px; }
+    .small { color: #666; font-size: 12px; }
+    code { background: #f4f4f4; padding: 2px 6px; border-radius: 6px; }
+  </style>
+</head>
+<body>
+  <h1>画像リサイズ（出力固定: <code>1280×670</code>）</h1>
+
+  <div class="drop" id="drop">
+    ここに画像をドロップ（または）
+    <input type="file" id="file" accept="image/*" multiple />
+    <div class="small">※画像はアップロードされません（ブラウザ内で処理します）</div>
+  </div>
+
+  <div class="row">
+    <label>形式
+      <select id="format">
+        <option value="image/jpeg">JPEG</option>
+        <option value="image/webp">WebP</option>
+        <option value="image/png">PNG</option>
+      </select>
+    </label>
+
+    <label>品質（JPEG/WebP）
+      <input type="range" id="quality" min="40" max="95" value="85">
+      <span id="qLabel">0.85</span>
+    </label>
+
+    <label>容量上限(MB)
+      <input type="number" id="maxMB" value="1" min="0" step="0.1">
+    </label>
+
+    <button id="run">変換してダウンロード</button>
+  </div>
+
+  <h3>選択中ファイル</h3>
+  <ul id="list"></ul>
+
+<script>
+  // ===== 固定出力サイズ =====
+  const OUT_W = 1280;
+  const OUT_H = 670;
+  const OUT_AR = OUT_W / OUT_H;
+
+  const drop = document.getElementById('drop');
+  const fileInput = document.getElementById('file');
+  const runBtn = document.getElementById('run');
+  const list = document.getElementById('list');
+
+  const formatEl = document.getElementById('format');
+  const qualityEl = document.getElementById('quality');
+  const qLabel = document.getElementById('qLabel');
+  const maxMBEl = document.getElementById('maxMB');
+
+  let files = [];
+
+  qualityEl.addEventListener('input', () => {
+    qLabel.textContent = (qualityEl.value / 100).toFixed(2);
+  });
+
+  function setFiles(fList) {
+    files = Array.from(fList).filter(f => f.type.startsWith('image/'));
+    list.innerHTML = '';
+    for (const f of files) {
+      const li = document.createElement('li');
+      li.textContent = `${f.name} (${(f.size/1024/1024).toFixed(2)} MB)`;
+      list.appendChild(li);
+    }
+  }
+
+  fileInput.addEventListener('change', (e) => setFiles(e.target.files));
+
+  drop.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    drop.style.borderColor = '#333';
+  });
+  drop.addEventListener('dragleave', () => drop.style.borderColor = '#aaa');
+  drop.addEventListener('drop', (e) => {
+    e.preventDefault();
+    drop.style.borderColor = '#aaa';
+    setFiles(e.dataTransfer.files);
+  });
+
+  function blobToDownload(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  function extFromMime(mime) {
+    if (mime === 'image/jpeg') return 'jpg';
+    if (mime === 'image/webp') return 'webp';
+    if (mime === 'image/png') return 'png';
+    return 'img';
+  }
+
+  async function toBlobAsync(canvas, mime, quality) {
+    return new Promise((resolve) => {
+      if (mime === 'image/png') {
+        canvas.toBlob(resolve, mime);
+      } else {
+        canvas.toBlob(resolve, mime, quality);
+      }
+    });
+  }
+
+  /**
+   * coverCropRect:
+   * 元画像(bitmapW x bitmapH) から、出力AR(=OUT_AR)に一致する
+   * 中央トリミング矩形 {sx, sy, sw, sh} を返す
+   */
+  function coverCropRect(bitmapW, bitmapH) {
+    const srcAR = bitmapW / bitmapH;
+
+    let sw, sh, sx, sy;
+    if (srcAR > OUT_AR) {
+      // 横長すぎ -> 横を切る
+      sh = bitmapH;
+      sw = Math.round(sh * OUT_AR);
+      sx = Math.round((bitmapW - sw) / 2);
+      sy = 0;
+    } else {
+      // 縦長すぎ -> 縦を切る
+      sw = bitmapW;
+      sh = Math.round(sw / OUT_AR);
+      sx = 0;
+      sy = Math.round((bitmapH - sh) / 2);
+    }
+    return { sx, sy, sw, sh };
+  }
+
+  async function resizeOneFixed(file, mime, baseQuality, maxBytes) {
+    const bitmap = await createImageBitmap(file);
+    const { sx, sy, sw, sh } = coverCropRect(bitmap.width, bitmap.height);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = OUT_W;
+    canvas.height = OUT_H;
+
+    const ctx = canvas.getContext('2d', { alpha: true });
+
+    // drawImage(source, sx, sy, sw, sh, dx, dy, dw, dh)
+    ctx.drawImage(bitmap, sx, sy, sw, sh, 0, 0, OUT_W, OUT_H);
+
+    // まず指定品質で出力
+    let q = baseQuality;
+    let blob = await toBlobAsync(canvas, mime, q);
+
+    // 容量上限がある & JPEG/WebPなら品質を下げて収める
+    const canAdjust = (mime === 'image/jpeg' || mime === 'image/webp');
+    if (maxBytes > 0 && canAdjust) {
+      while (blob && blob.size > maxBytes && q > 0.35) {
+        q = Math.max(0.35, q - 0.07);
+        blob = await toBlobAsync(canvas, mime, q);
+      }
+    }
+    return blob;
+  }
+
+  runBtn.addEventListener('click', async () => {
+    if (!files.length) return;
+
+    runBtn.disabled = true;
+    runBtn.textContent = '変換中…';
+
+    try {
+      const mime = formatEl.value;
+      const baseQuality = (Number(qualityEl.value) || 85) / 100;
+      const maxMB = Number(maxMBEl.value) || 0;
+      const maxBytes = maxMB > 0 ? Math.round(maxMB * 1024 * 1024) : 0;
+
+      for (const f of files) {
+        const blob = await resizeOneFixed(f, mime, baseQuality, maxBytes);
+        if (!blob) continue;
+
+        const ext = extFromMime(mime);
+        const safeName = f.name.replace(/\.[^.]+$/, '');
+        const outName = `${safeName}_note_${OUT_W}x${OUT_H}.${ext}`;
         blobToDownload(blob, outName);
       }
     } finally {
