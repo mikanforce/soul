@@ -1,0 +1,429 @@
+
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>番手ゆっきーブロック</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #333;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            touch-action: none;
+            font-family: 'Hiragino Kaku Gothic ProN', sans-serif;
+        }
+        canvas {
+            background-color: #808080; /* バンクの色 */
+            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+        }
+        #uiLayer {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none; /* UIはクリック透過 */
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+        #scoreBoard {
+            color: white;
+            padding: 20px;
+            font-size: 1.5rem;
+            text-shadow: 2px 2px 0 #000;
+            font-weight: bold;
+        }
+        #titleScreen, #gameOverScreen {
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(255, 255, 255, 0.9);
+            padding: 30px;
+            border-radius: 15px;
+            text-align: center;
+            border: 5px solid #000;
+            pointer-events: auto;
+            width: 80%;
+            max-width: 400px;
+        }
+        h1 { margin: 0 0 10px 0; font-size: 1.8rem; color: #d32f2f; }
+        p { font-weight: bold; }
+        button {
+            margin-top: 20px;
+            padding: 15px 40px;
+            font-size: 1.2rem;
+            cursor: pointer;
+            background: #000; color: white; border: none; border-radius: 30px;
+            font-weight: bold;
+        }
+        button:active { transform: scale(0.95); }
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <div id="uiLayer">
+        <div id="scoreBoard">守った距離: 0m</div>
+    </div>
+
+    <div id="titleScreen">
+        <h1>番手ゆっきー<br>ブロック</h1>
+        <p>ラインの絆を守り抜け！</p>
+        <p style="font-size:0.9rem; color:#555;">左右タップ/矢印キーで移動<br>敵に体当たりしてブロックせよ</p>
+        <button onclick="startGame()">発走！</button>
+    </div>
+
+    <div id="gameOverScreen" class="hidden">
+        <h1 style="color:blue;">捲られた…</h1>
+        <p>記録: <span id="finalScore" style="font-size:1.5rem; color:red;">0</span> m</p>
+        <button onclick="resetGame()">ちぎってやり直す</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreBoard = document.getElementById('scoreBoard');
+        const titleScreen = document.getElementById('titleScreen');
+        const gameOverScreen = document.getElementById('gameOverScreen');
+        const finalScoreText = document.getElementById('finalScore');
+
+        // 画面設定
+        function resizeCanvas() {
+            canvas.width = Math.min(window.innerWidth, 500); // 最大幅500
+            canvas.height = window.innerHeight;
+        }
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+
+        // --- ゲーム変数 ---
+        let gameState = "title"; // title, playing, gameover
+        let score = 0;
+        let speed = 5; // 背景スクロール速度
+        let enemies = [];
+        let particles = []; // 吹き出しなどのエフェクト
+        let animationId;
+        
+        // --- キャラクター定義 ---
+        
+        // ゆっきー（プレイヤー）
+        const yukkie = {
+            x: canvas.width / 2,
+            y: canvas.height * 0.6, // 画面中央よりやや下
+            width: 50,
+            height: 80,
+            color: '#000000', // 2番車（黒）
+            vx: 0,
+            draw: function() {
+                // 自転車（簡易）
+                ctx.fillStyle = '#ccc';
+                ctx.fillRect(this.x - 5, this.y - 10, 10, 100);
+                
+                // 体（小太り）
+                ctx.fillStyle = this.color; // ユニフォーム黒
+                ctx.beginPath();
+                ctx.ellipse(this.x, this.y + 20, 25, 30, 0, 0, Math.PI * 2);
+                ctx.fill();
+
+                // 2番車の「2」
+                ctx.fillStyle = 'white';
+                ctx.font = 'bold 20px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText('2', this.x, this.y + 25);
+
+                // 頭
+                ctx.fillStyle = '#fce0c6'; // 肌色
+                ctx.beginPath();
+                ctx.arc(this.x, this.y - 15, 18, 0, Math.PI * 2);
+                ctx.fill();
+
+                // 髪（センター分け・少し長め）
+                ctx.fillStyle = '#333';
+                ctx.beginPath();
+                ctx.arc(this.x, this.y - 18, 20, Math.PI, Math.PI * 2); // 上半分
+                ctx.lineTo(this.x - 22, this.y - 5); // 左もみあげ
+                ctx.lineTo(this.x - 5, this.y - 20); // 分け目左
+                ctx.lineTo(this.x + 5, this.y - 20); // 分け目右
+                ctx.lineTo(this.x + 22, this.y - 5); // 右もみあげ
+                ctx.fill();
+
+                // メガネ
+                ctx.strokeStyle = '#555'; // 銀縁
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.arc(this.x - 6, this.y - 12, 5, 0, Math.PI*2); // 左目
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.arc(this.x + 6, this.y - 12, 5, 0, Math.PI*2); // 右目
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.moveTo(this.x - 1, this.y - 12);
+                ctx.lineTo(this.x + 1, this.y - 12); // ブリッジ
+                ctx.stroke();
+
+                // 汗（頑張ってる感）
+                ctx.fillStyle = '#87cefa';
+                ctx.beginPath();
+                ctx.arc(this.x + 15, this.y - 20, 3, 0, Math.PI*2);
+                ctx.fill();
+            },
+            update: function() {
+                // 移動制限（バンクからはみ出ない）
+                this.x += this.vx;
+                if (this.x < 30) this.x = 30;
+                if (this.x > canvas.width - 30) this.x = canvas.width - 30;
+            }
+        };
+
+        // 先行選手（1番車・白）
+        const senko = {
+            x: canvas.width / 2,
+            y: canvas.height * 0.3, // ゆっきーの前
+            targetX: canvas.width / 2, // ゆらゆら動く目標
+            draw: function() {
+                // 自転車
+                ctx.fillStyle = '#ccc';
+                ctx.fillRect(this.x - 5, this.y - 10, 10, 100);
+                // 体
+                ctx.fillStyle = '#fff'; // 1番車
+                ctx.beginPath();
+                ctx.ellipse(this.x, this.y + 20, 20, 35, 0, 0, Math.PI * 2);
+                ctx.fill();
+                // 数字
+                ctx.fillStyle = 'black';
+                ctx.font = 'bold 20px sans-serif';
+                ctx.fillText('1', this.x, this.y + 25);
+                // 頭
+                ctx.fillStyle = '#fff'; // ヘルメット
+                ctx.beginPath();
+                ctx.arc(this.x, this.y - 15, 15, 0, Math.PI * 2);
+                ctx.fill();
+            },
+            update: function() {
+                // ラインっぽくゆらゆら走る
+                if (Math.random() < 0.02) this.targetX = (canvas.width / 2) + (Math.random() * 100 - 50);
+                this.x += (this.targetX - this.x) * 0.05;
+                
+                // ゆっきーも基本はラインに付いていこうとする（操作してない時）
+                // ただし操作優先なので、補正は弱めに
+                // yukkie.x += (this.x - yukkie.x) * 0.01; 
+            }
+        };
+
+        // 敵クラス
+        class Enemy {
+            constructor() {
+                this.width = 40;
+                this.height = 80;
+                // 左右どちらかから出現
+                this.side = Math.random() < 0.5 ? -1 : 1; 
+                this.x = this.side === -1 ? 40 : canvas.width - 40;
+                this.y = canvas.height + 100; // 画面外下
+                
+                // 色（3=赤, 4=青, 5=黄, ...）
+                const colors = ['#ff0000', '#0000ff', '#ffff00', '#00ff00', '#ffa500'];
+                this.color = colors[Math.floor(Math.random() * colors.length)];
+                
+                // 速度（ゆっきーより速い）
+                this.speedY = 3 + (score / 500); // 進むほど速くなる
+                this.speedX = 0.5 * -this.side; // 少し内側に切り込んでくる
+                this.knockback = 0; // ブロックされた時の衝撃
+            }
+            
+            draw() {
+                ctx.fillStyle = '#ccc';
+                ctx.fillRect(this.x - 4, this.y - 10, 8, 100);
+                
+                ctx.fillStyle = this.color;
+                ctx.beginPath();
+                ctx.ellipse(this.x, this.y + 20, 20, 35, 0, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // ヘルメット
+                ctx.beginPath();
+                ctx.arc(this.x, this.y - 15, 15, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            update() {
+                if (this.knockback > 0) {
+                    // ブロックされた状態：後ろに下がる＆横に飛ぶ
+                    this.y += 10; 
+                    this.x += this.knockback * 2;
+                    this.knockback *= 0.9;
+                    if (this.knockback < 0.5 && this.knockback > -0.5) this.knockback = 0;
+                } else {
+                    // 通常攻撃状態：前に進む
+                    this.y -= this.speedY;
+                    this.x += this.speedX;
+                }
+            }
+        }
+
+        // エフェクト（吹き出し）
+        class Particle {
+            constructor(x, y, text) {
+                this.x = x; this.y = y; this.text = text;
+                this.life = 30;
+                this.dy = -2;
+            }
+            draw() {
+                ctx.font = 'bold 24px sans-serif';
+                ctx.fillStyle = 'yellow';
+                ctx.strokeStyle = 'black';
+                ctx.lineWidth = 3;
+                ctx.strokeText(this.text, this.x, this.y);
+                ctx.fillText(this.text, this.x, this.y);
+            }
+            update() {
+                this.y += this.dy;
+                this.life--;
+            }
+        }
+
+        // --- ゲームループ ---
+        
+        function gameLoop() {
+            if (gameState !== "playing") return;
+
+            // 背景（バンク）描画
+            ctx.fillStyle = '#808080';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // バンクのライン（スクロール演出）
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 2;
+            const lineOffset = (Date.now() / 2) % 100;
+            // 内線・外線
+            ctx.beginPath(); ctx.moveTo(20, 0); ctx.lineTo(20, canvas.height); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(canvas.width-20, 0); ctx.lineTo(canvas.width-20, canvas.height); ctx.stroke();
+            
+            // 横線（スピード感）
+            for(let i=0; i<canvas.height; i+=100) {
+                ctx.beginPath();
+                ctx.moveTo(0, i + lineOffset);
+                ctx.lineTo(canvas.width, i + lineOffset);
+                ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+                ctx.stroke();
+            }
+
+            // 更新処理
+            senko.update();
+            yukkie.update();
+            
+            // 敵の出現管理
+            if (Math.random() < 0.02 + (score/5000)) { // 確率で出現
+                enemies.push(new Enemy());
+            }
+
+            // 敵の更新と当たり判定
+            enemies.forEach((e, index) => {
+                e.update();
+                
+                // ブロック判定（ゆっきーと敵が重なったら）
+                // 簡易的な矩形判定
+                if (Math.abs(yukkie.x - e.x) < 50 && Math.abs(yukkie.y - e.y) < 60) {
+                    // 当たった！
+                    if (e.knockback === 0) { // まだ弾かれてないなら
+                        // ゆっきーが敵の方へ動いている、または敵が寄ってきている
+                        
+                        // 弾き飛ばす方向
+                        const dir = (e.x > yukkie.x) ? 1 : -1;
+                        e.knockback = dir * 15; // 強烈に弾く
+                        
+                        // セリフ演出
+                        const shouts = ["どけぇ！", "コラァ！", "甘い！", "死守！", "おりゃ！"];
+                        const shout = shouts[Math.floor(Math.random() * shouts.length)];
+                        particles.push(new Particle(yukkie.x, yukkie.y - 40, shout));
+                        
+                        // 振動演出（画面を少し揺らす的な、今回は省略）
+                    }
+                }
+
+                // 画面外（下）へ消えたら削除
+                if (e.y > canvas.height + 200) {
+                    enemies.splice(index, 1);
+                }
+                
+                // ゲームオーバー判定（敵に抜かれた＝敵のY座標がゆっきーより上に行き、かつ画面上部に消えた）
+                if (e.y < -100) {
+                    gameOver();
+                }
+            });
+
+            // エフェクト更新
+            particles.forEach((p, i) => {
+                p.update();
+                if (p.life <= 0) particles.splice(i, 1);
+            });
+
+            // 描画
+            enemies.forEach(e => e.draw()); // 敵はゆっきーより下に描画（重なり順）
+            senko.draw(); // 先行
+            yukkie.draw(); // ゆっきー
+            particles.forEach(p => p.draw());
+
+            // スコア加算
+            score++;
+            scoreBoard.innerText = `守った距離: ${Math.floor(score/10)}m`;
+
+            animationId = requestAnimationFrame(gameLoop);
+        }
+
+        // --- 入力処理 ---
+        // PC
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowLeft') yukkie.vx = -7;
+            if (e.key === 'ArrowRight') yukkie.vx = 7;
+        });
+        document.addEventListener('keyup', (e) => {
+            if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') yukkie.vx = 0;
+        });
+
+        // スマホ（画面の左右タップ）
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            const touchX = e.touches[0].clientX;
+            const centerX = window.innerWidth / 2;
+            if (touchX < centerX) yukkie.vx = -7;
+            else yukkie.vx = 7;
+        }, {passive: false});
+
+        canvas.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            yukkie.vx = 0;
+        });
+
+        // --- ゲーム管理 ---
+        function startGame() {
+            titleScreen.classList.add('hidden');
+            gameOverScreen.classList.add('hidden');
+            gameState = "playing";
+            score = 0;
+            enemies = [];
+            particles = [];
+            
+            // ゆっきー位置リセット
+            yukkie.x = canvas.width / 2;
+            
+            gameLoop();
+        }
+
+        function gameOver() {
+            gameState = "gameover";
+            cancelAnimationFrame(animationId);
+            finalScoreText.innerText = Math.floor(score/10);
+            gameOverScreen.classList.remove('hidden');
+        }
+
+        function resetGame() {
+            startGame();
+        }
+
+    </script>
+</body>
+</html>
