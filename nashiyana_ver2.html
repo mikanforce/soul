@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>超なしやな走</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #2c3e50;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            -webkit-tap-highlight-color: transparent;
+            user-select: none;
+            touch-action: none;
+        }
+        canvas {
+            border-bottom: 4px solid #555;
+            box-shadow: 0px 5px 15px rgba(0,0,0,0.5);
+            background-color: rgba(0,0,0,0.3);
+        }
+        
+        /* 強制終了ボタン（×ボタン） */
+        #endGameBtn {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            width: 50px;
+            height: 50px;
+            background: rgba(255, 0, 0, 0.7);
+            color: white;
+            border: 3px solid white;
+            border-radius: 50%;
+            font-size: 30px;
+            line-height: 45px;
+            padding: 0;
+            cursor: pointer;
+            z-index: 50;
+            display: none;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.5);
+            font-family: sans-serif;
+        }
+        #endGameBtn:active { transform: scale(0.9); background: red; }
+
+        #gameOverScreen {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(100, 0, 0, 0.95);
+            color: white;
+            padding: 30px;
+            text-align: center;
+            border-radius: 15px;
+            display: none;
+            width: 85%;
+            max-width: 400px;
+            z-index: 100;
+            border: 2px solid #ff5252;
+            box-sizing: border-box;
+        }
+        #gameOverScreen h2 { 
+            margin-top: 0; 
+            color: #ff5252; 
+            font-size: 2rem;
+            text-shadow: 2px 2px 0 #000;
+        }
+        
+        /* 隠しボタンエリア */
+        #secretZone {
+            position: absolute;
+            top: 0; right: 0; width: 80px; height: 80px; z-index: 200;
+            /* background: rgba(255,0,0,0.2); デバッグ用：場所確認 */
+        }
+
+        .new-record {
+            color: #ffeb3b;
+            font-weight: bold;
+            font-size: 1.4rem;
+            display: none;
+            animation: flash 0.5s infinite;
+            margin-bottom: 10px;
+        }
+        @keyframes flash {
+            0% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(1.1); }
+            100% { opacity: 1; transform: scale(1); }
+        }
+        
+        button.restart-btn {
+            margin-top: 20px;
+            padding: 15px 40px;
+            font-size: 1.2rem;
+            cursor: pointer;
+            background: #000; border: 2px solid #ff5252; border-radius: 50px; color: #ff5252;
+            font-weight: bold;
+            position: relative; 
+            z-index: 201; /* 隠しボタンより手前に */
+        }
+        button.restart-btn:active { background: #ff5252; color: #000; }
+
+        /* 八百長モード通知用 */
+        #cheatNotice {
+            position: fixed;
+            top: 20%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.9);
+            color: gold;
+            border: 4px solid gold;
+            padding: 20px;
+            border-radius: 10px;
+            font-size: 1.5rem;
+            font-weight: bold;
+            text-align: center;
+            z-index: 300;
+            display: none;
+            box-shadow: 0 0 20px gold;
+        }
+    </style>
+</head>
+<body>
+
+    <canvas id="gameCanvas"></canvas>
+    
+    <button id="endGameBtn" onclick="forceEndGame(event)">×</button>
+
+    <div id="cheatNotice">
+        八百長モードON！<br>
+        <span style="font-size:1rem; color:white;">障害物・穴を排除しました。<br>左上の×でいつでも記録確定できます。</span>
+    </div>
+
+    <div id="gameOverScreen">
+        <div id="secretZone" onclick="countSecretTap()"></div>
+        
+        <h2 id="gameOverTitle">GAME OVER</h2>
+        <div id="newRecordMsg" class="new-record">新記録達成！</div>
+        <p>記録: <span id="finalScore" style="font-weight:bold; font-size:1.5rem;">0</span> m</p>
+        <p style="color:#ccc; font-size:0.9rem;">(最高: <span id="bestScoreDisplay">0</span> m)</p>
+        <button class="restart-btn" onclick="resetGame()">再挑戦</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const gameOverScreen = document.getElementById('gameOverScreen');
+        const finalScoreText = document.getElementById('finalScore');
+        const bestScoreDisplayText = document.getElementById('bestScoreDisplay');
+        const newRecordMsg = document.getElementById('newRecordMsg');
+        const gameOverTitle = document.getElementById('gameOverTitle');
+        const endGameBtn = document.getElementById('endGameBtn');
+        const cheatNotice = document.getElementById('cheatNotice');
+
+        let highScore = localStorage.getItem('nashiyana_hard_highscore') || 0;
+
+        // --- 裏技管理 ---
+        let secretTapCount = 0;
+        let isCheatMode = false;
+
+        function countSecretTap() {
+            secretTapCount++;
+            console.log(secretTapCount);
+            if (secretTapCount === 15) {
+                activateCheatMode();
+            }
+        }
+
+        function activateCheatMode() {
+            isCheatMode = true;
+            
+            // 画面表示を変更
+            gameOverTitle.innerText = "八百長準備完了";
+            gameOverTitle.style.color = "gold";
+            
+            // ポップアップ通知を表示
+            cheatNotice.style.display = 'block';
+            setTimeout(() => {
+                cheatNotice.style.display = 'none';
+            }, 3000); // 3秒後に消える
+        }
+
+        // --- 強制終了（記録確定） ---
+        function forceEndGame(e) {
+            e.stopPropagation();
+            endGame();
+        }
+
+        // --- 画面設定 ---
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            groundY = canvas.height - 150; 
+        }
+        
+        let groundY = 300; 
+        window.addEventListener('resize', resizeCanvas);
+
+        const GRAVITY = 0.6;
+        const JUMP_POWER = -11; 
+        const BASE_SPEED = 6;
+        
+        let currentSpeed = BASE_SPEED;
+        let score = 0;
+        let isGameOver = false;
+        let animationId;
+
+        let player = {
+            x: 50, y: 0, width: 30, height: 30, vy: 0,
+            jumpCount: 0,
+            draw: function() {
+                ctx.fillStyle = isCheatMode ? '#00ffff' : '#ffeb3b';
+                ctx.fillRect(this.x, this.y, this.width, this.height);
+                ctx.fillStyle = '#000';
+                ctx.beginPath(); ctx.arc(this.x + 5, this.y + this.height, 5, 0, Math.PI*2); ctx.fill();
+                ctx.beginPath(); ctx.arc(this.x + this.width - 5, this.y + this.height, 5, 0, Math.PI*2); ctx.fill();
+                ctx.fillStyle = 'black';
+                ctx.font = 'bold 12px sans-serif';
+                ctx.fillText(isCheatMode ? '神' : '鬼', this.x + 8, this.y + 20);
+            },
+            update: function() {
+                this.vy += GRAVITY;
+                this.y += this.vy;
+                if (this.y > canvas.height + 100) {
+                    endGame();
+                }
+            },
+            jump: function() {
+                if (this.jumpCount < 2) {
+                    this.vy = JUMP_POWER;
+                    this.jumpCount++;
+                }
+            }
+        };
+
+        let grounds = [];
+        
+        function initGrounds() {
+            grounds = [];
+            resizeCanvas();
+            player.y = groundY - 100;
+            grounds.push({ x: 0, y: groundY, width: canvas.width, height: 200, obstacles: [] });
+        }
+
+        function manageGrounds() {
+            let lastGround = grounds[grounds.length - 1];
+            
+            if (lastGround.x + lastGround.width < canvas.width) {
+                let currentMeters = Math.floor(score/10);
+                
+                let minGap = 50;
+                let maxGap = 100 + (currentMeters / 10);
+                if(maxGap > 250) maxGap = 250;
+                let gap = Math.random() * (maxGap - minGap) + minGap;
+
+                let minWidth = 50; 
+                if(currentMeters < 100) minWidth = 150;
+                let newWidth = Math.random() * 300 + minWidth;
+
+                let heightDiff = Math.random() * 160 - 80; 
+                let newY = lastGround.y + heightDiff;
+                
+                if (newY < canvas.height * 0.4) newY = canvas.height * 0.4;
+                if (newY > canvas.height - 100) newY = canvas.height - 100;
+
+                // ★ チート処理 ★
+                if (isCheatMode) {
+                    gap = 0;        
+                    newY = groundY; 
+                    newWidth = canvas.width; 
+                }
+
+                let newGround = {
+                    x: lastGround.x + lastGround.width + gap,
+                    y: newY,
+                    width: newWidth,
+                    height: 500,
+                    obstacles: []
+                };
+
+                if (!isCheatMode && currentMeters >= 100 && Math.random() < 0.5) { 
+                    if(newWidth > 80) {
+                        let obsRelX = Math.random() * (newWidth - 40) + 20;
+                        newGround.obstacles.push({
+                            relativeX: obsRelX,
+                            y: newY - 30,
+                            width: 30,
+                            height: 30
+                        });
+                    }
+                }
+                grounds.push(newGround);
+            }
+
+            grounds.forEach((g, index) => {
+                g.x -= currentSpeed;
+                ctx.fillStyle = '#7f8c8d'; 
+                ctx.fillRect(g.x, g.y, g.width, g.height);
+                ctx.fillStyle = '#95a5a6';
+                ctx.fillRect(g.x, g.y, g.width, 10);
+
+                g.obstacles.forEach(obs => {
+                    let obsActualX = g.x + obs.relativeX;
+                    ctx.fillStyle = '#ff5252';
+                    ctx.beginPath();
+                    ctx.moveTo(obsActualX, obs.y + obs.height);
+                    ctx.lineTo(obsActualX + obs.width / 2, obs.y);
+                    ctx.lineTo(obsActualX + obs.width, obs.y + obs.height);
+                    ctx.closePath();
+                    ctx.fill();
+                });
+                if (g.x + g.width < -100) grounds.splice(index, 1);
+            });
+        }
+
+        function checkCollisions() {
+            let onGround = false;
+            grounds.forEach(g => {
+                if (player.x + player.width > g.x && player.x < g.x + g.width &&
+                    player.y + player.height >= g.y && player.y + player.height <= g.y + currentSpeed + 20 &&
+                    player.vy >= 0) {
+                        player.y = g.y - player.height;
+                        player.vy = 0;
+                        player.jumpCount = 0;
+                        onGround = true;
+                }
+                g.obstacles.forEach(obs => {
+                    let obsActualX = g.x + obs.relativeX;
+                    if (player.x + 5 < obsActualX + obs.width &&
+                        player.x + player.width - 5 > obsActualX &&
+                        player.y + 5 < obs.y + obs.height &&
+                        player.y + player.height - 5 > obs.y) {
+                        endGame();
+                    }
+                });
+            });
+            if(!onGround) player.jumpCount = Math.max(player.jumpCount, 1);
+        }
+
+        function gameLoop() {
+            if (isGameOver) return;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            let speedBoost = Math.floor(score/1000); 
+            currentSpeed = BASE_SPEED + speedBoost;
+            if(currentSpeed > 15) currentSpeed = 15;
+
+            manageGrounds();
+            player.update();
+            checkCollisions();
+            player.draw();
+
+            score++;
+            let currentMeters = Math.floor(score/10);
+
+            ctx.fillStyle = '#fff';
+            ctx.textAlign = 'left';
+            ctx.font = 'bold 20px sans-serif';
+            let title = isCheatMode ? "八百長走行中" : "超なしやな走";
+            ctx.fillText(`${title}: ${currentMeters}m`, 80, 40); 
+            
+            ctx.font = '14px sans-serif';
+            ctx.fillText(`速度: Lv.${Math.floor(currentSpeed - BASE_SPEED + 1)}`, 80, 65);
+
+            ctx.textAlign = 'right';
+            ctx.fillStyle = '#ff5252';
+            ctx.fillText(`最高: ${highScore}m`, canvas.width - 20, 40);
+
+            animationId = requestAnimationFrame(gameLoop);
+        }
+
+        function handleInput(e) {
+            // ボタンや隠しゾーンをタップしたときはジャンプ処理をしない
+            if(e.target.tagName === 'BUTTON' || e.target.id === 'secretZone') return;
+
+            // ゲーム中はスクロール防止
+            if (!isGameOver) {
+                e.preventDefault(); 
+                player.jump();
+            }
+            // ゲームオーバー画面ではpreventDefaultしない（ボタンが押せるように）
+        }
+        
+        document.body.addEventListener('touchstart', handleInput, {passive: false});
+        document.body.addEventListener('mousedown', handleInput);
+        document.addEventListener('keydown', (e) => { if(e.code === 'Space') handleInput(e); });
+
+        function endGame() {
+            if(isGameOver) return;
+            isGameOver = true;
+            cancelAnimationFrame(animationId);
+            
+            endGameBtn.style.display = 'none';
+
+            let currentMeters = Math.floor(score/10);
+            if (currentMeters > highScore) {
+                highScore = currentMeters;
+                localStorage.setItem('nashiyana_hard_highscore', highScore);
+                newRecordMsg.style.display = 'block';
+            } else {
+                newRecordMsg.style.display = 'none';
+            }
+
+            finalScoreText.innerText = currentMeters;
+            bestScoreDisplayText.innerText = highScore;
+            gameOverScreen.style.display = 'block';
+
+            secretTapCount = 0;
+        }
+
+        function resetGame() {
+            isGameOver = false;
+            gameOverScreen.style.display = 'none';
+            endGameBtn.style.display = 'block';
+            
+            player.y = 0;
+            player.vy = 0;
+            player.jumpCount = 0;
+            score = 0;
+            currentSpeed = BASE_SPEED;
+            initGrounds();
+            gameLoop();
+        }
+
+        initGrounds();
+        gameLoop();
+    </script>
+</body>
+</html>
