@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>連打で飛べなしやなくん</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: 'Arial Black', sans-serif;
+            touch-action: manipulation;
+            background-color: #87CEEB; /* 青空 */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            text-align: center;
+            color: #fff;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+        }
+        
+        .screen {
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            height: 100%;
+            position: absolute;
+            top: 0; left: 0;
+        }
+        .screen.active { display: flex; }
+
+        h1 { font-size: 2.2rem; margin-bottom: 10px; line-height: 1.2; }
+        h2 { font-size: 2rem; margin: 10px 0; color: #ffeb3b; }
+        p { font-size: 1.2rem; margin: 5px 0; }
+
+        /* スタートボタン */
+        .start-btn {
+            padding: 15px 40px;
+            font-size: 1.5rem;
+            cursor: pointer;
+            background: linear-gradient(#ffeb3b, #fbc02d);
+            color: #333;
+            border: none;
+            border-radius: 50px;
+            box-shadow: 0 8px 0 #f57f17, 0 10px 20px rgba(0,0,0,0.3);
+            font-weight: bold;
+            transition: all 0.1s;
+            font-family: inherit;
+            margin-top: 20px;
+            position: relative;
+            z-index: 10;
+        }
+        .start-btn:active {
+            transform: translateY(5px);
+            box-shadow: 0 3px 0 #f57f17, 0 5px 10px rgba(0,0,0,0.3);
+        }
+
+        /* 隠しボタン */
+        #secretBtn {
+            width: 200px;
+            height: 100px; 
+            margin-top: 20px;
+            z-index: 9;
+        }
+
+        /* ハイスコア表示 */
+        .high-score-label {
+            font-size: 1.2rem;
+            color: #ffeb3b;
+            background: rgba(0,0,0,0.3);
+            padding: 5px 15px;
+            border-radius: 10px;
+            margin-bottom: 10px;
+        }
+
+        /* NEW RECORD演出 */
+        .new-record-anim {
+            color: #ff4081;
+            font-size: 2rem;
+            font-weight: bold;
+            text-shadow: 2px 2px 0 #fff;
+            animation: flash 0.5s infinite alternate;
+            margin-bottom: 10px;
+            display: none;
+        }
+        @keyframes flash { from { transform: scale(1); opacity: 1; } to { transform: scale(1.1); opacity: 0.8; } }
+
+        /* --- タイトル画面 --- */
+        #titleText.rocket-mode {
+            color: #ff5252;
+            text-shadow: 3px 3px 0 #ffeb3b, 5px 5px 10px rgba(0,0,0,0.5);
+        }
+        
+        /* ロケットモード通知 */
+        #rocketNotice {
+            position: absolute;
+            top: 10%;
+            font-size: 1.2rem;
+            color: #ff5252;
+            background: rgba(255,255,0,0.95);
+            padding: 10px 20px;
+            border-radius: 10px;
+            display: none;
+            animation: pulse 0.5s infinite alternate;
+            z-index: 101;
+        }
+        @keyframes pulse { from { transform: scale(1); } to { transform: scale(1.05); } }
+
+        /* --- 連打画面 --- */
+        #tapButton {
+            width: 200px; height: 200px;
+            font-size: 2rem;
+            border-radius: 50%;
+            background: linear-gradient(#ff5252, #d32f2f);
+            box-shadow: 0 10px 0 #b71c1c, 0 15px 30px rgba(0,0,0,0.4);
+            color: white;
+            margin-top: 10px;
+            border: none;
+        }
+        #tapButton:active {
+             background: linear-gradient(#ff8a80, #ff5252);
+             transform: translateY(5px) scale(0.98);
+             box-shadow: 0 5px 0 #b71c1c, 0 5px 15px rgba(0,0,0,0.4);
+        }
+        .tap-effect {
+            position: absolute;
+            font-size: 3rem;
+            color: yellow;
+            pointer-events: none;
+            animation: popUp 0.5s ease-out forwards;
+        }
+        @keyframes popUp {
+            0% { opacity: 1; transform: translate(-50%, -50%) scale(0.5); }
+            100% { opacity: 0; transform: translate(-50%, -150%) scale(1.5); }
+        }
+
+        /* --- 飛行画面 --- */
+        #flyScreen { overflow: hidden; }
+        .bg-clouds, .bg-ground {
+            position: absolute;
+            width: 200%;
+            left: 0;
+        }
+        .bg-clouds {
+            top: 10%; height: 30%;
+            background: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 200" fill="rgba(255,255,255,0.6)"><path d="M 50 100 C 80 60, 150 60, 180 100 C 210 60, 280 60, 310 100 C 340 60, 410 60, 440 100 L 800 100 L 800 200 L 0 200 L 0 100 Z" /></svg>') repeat-x;
+            background-size: auto 100%;
+        }
+        .bg-ground {
+            bottom: 0; height: 20%;
+            background: #4CAF50;
+            border-top: 10px solid #388E3C;
+        }
+        #playerObject {
+            position: absolute;
+            left: 10%;
+            bottom: 20%;
+            font-size: 4rem;
+            transition: bottom 0.2s ease-out; /* 反応を早くした */
+            filter: drop-shadow(5px 5px 10px rgba(0,0,0,0.3));
+        }
+        .rocket-flame {
+            position: absolute;
+            left: -30px; top: 50%;
+            transform: translateY(-50%);
+            font-size: 2rem;
+            animation: flame 0.1s infinite alternate;
+            display: none;
+        }
+        #playerObject.rocket .rocket-flame { display: block; }
+        @keyframes flame { from { opacity: 0.7; scale: 0.8; } to { opacity: 1; scale: 1.2; } }
+
+        #distanceMeter {
+            position: absolute;
+            top: 20px; right: 20px;
+            font-size: 1.5rem;
+            background: rgba(0,0,0,0.5);
+            padding: 5px 15px;
+            border-radius: 20px;
+        }
+
+        /* 結果画面のボタン */
+        .retry-btn {
+            padding: 15px 40px;
+            font-size: 1.5rem;
+            cursor: pointer;
+            background: linear-gradient(#ffeb3b, #fbc02d);
+            color: #333;
+            border: none;
+            border-radius: 50px;
+            box-shadow: 0 8px 0 #f57f17, 0 10px 20px rgba(0,0,0,0.3);
+            font-weight: bold;
+            font-family: inherit;
+            margin-top: 20px;
+        }
+
+    </style>
+</head>
+<body>
+
+    <div id="titleScreen" class="screen active">
+        <div id="rocketNotice">ロケットモード発動！<br>なしやなパワー3倍！</div>
+
+        <h1 id="titleText">連打で飛べ<br>なしやなくん</h1>
+        <div class="high-score-label">最高記録: <span id="titleHighScore">0</span>m</div>
+        <p>5秒間の連打で空へ！</p>
+        
+        <button class="start-btn" onclick="startTapGame()">スタート</button>
+        
+        <div id="secretBtn"></div>
+    </div>
+
+    <div id="tapScreen" class="screen">
+        <h2>残り時間: <span id="timeLeft">5.00</span>秒</h2>
+        <p>連打数: <span id="tapCount">0</span></p>
+        <button id="tapButton" onmousedown="handleTap(event)" ontouchstart="handleTap(event)">連打ァ！</button>
+    </div>
+
+    <div id="flyScreen" class="screen">
+        <div class="bg-clouds" id="bgClouds"></div>
+        <div class="bg-ground" id="bgGround"></div>
+        
+        <div id="distanceMeter">0m</div>
+        
+        <div id="playerObject">✈️<div class="rocket-flame">🔥</div></div>
+    </div>
+
+    <div id="resultScreen" class="screen">
+        <h2>FINISH!</h2>
+        <div id="newRecordMsg" class="new-record-anim">NEW RECORD!</div>
+        <h1>記録: <span id="finalDistance">0</span>m</h1>
+        <div class="high-score-label">最高記録: <span id="resultHighScore">0</span>m</div>
+        <p>連打パワー: <span id="finalPower">0</span></p>
+        <button class="retry-btn" onclick="resetGame()">もう一度挑戦</button>
+    </div>
+
+
+    <script>
+        // --- 変数定義 ---
+        let gameState = 'title';
+        let isRocketMode = false;
+        let secretTapCount = 0;
+        let tapScore = 0;
+        let timeLeft = 5.00;
+        let tapTimer;
+        let flightDistance = 0;
+        let maxFlightDistance = 0;
+        let flightSpeed = 0;
+        let flightAnimationId;
+        let bgScrollX = 0;
+        
+        let highScore = localStorage.getItem('nashiyana_fly_highscore') || 0;
+
+        // --- DOM要素取得 ---
+        const screens = document.querySelectorAll('.screen');
+        const titleText = document.getElementById('titleText');
+        const rocketNotice = document.getElementById('rocketNotice');
+        const secretBtn = document.getElementById('secretBtn');
+        const timeLeftDisplay = document.getElementById('timeLeft');
+        const tapCountDisplay = document.getElementById('tapCount');
+        const tapButtonEl = document.getElementById('tapButton');
+        const playerObject = document.getElementById('playerObject');
+        const distanceMeter = document.getElementById('distanceMeter');
+        const finalDistanceDisplay = document.getElementById('finalDistance');
+        const finalPowerDisplay = document.getElementById('finalPower');
+        const bgClouds = document.getElementById('bgClouds');
+        const bgGround = document.getElementById('bgGround');
+        const titleHighScore = document.getElementById('titleHighScore');
+        const resultHighScore = document.getElementById('resultHighScore');
+        const newRecordMsg = document.getElementById('newRecordMsg');
+
+        titleHighScore.innerText = highScore;
+
+        // --- 画面切り替え ---
+        function showScreen(screenId) {
+            screens.forEach(s => s.classList.remove('active'));
+            document.getElementById(screenId).classList.add('active');
+            gameState = screenId.replace('Screen', '');
+        }
+
+        // --- 1. タイトル画面 ---
+        secretBtn.addEventListener('click', () => {
+            if (isRocketMode) return;
+            secretTapCount++;
+            if (secretTapCount >= 15) {
+                activateRocketMode();
+            }
+        });
+
+        function activateRocketMode() {
+            isRocketMode = true;
+            titleText.innerHTML = "連打で飛べ<br>なしやなロケット";
+            titleText.classList.add('rocket-mode');
+            rocketNotice.style.display = 'block';
+            playerObject.innerHTML = '🚀<div class="rocket-flame">🔥</div>';
+            playerObject.classList.add('rocket');
+        }
+
+        // --- 2. 連打ゲーム ---
+        function startTapGame() {
+            tapScore = 0;
+            timeLeft = 5.00;
+            tapCountDisplay.innerText = tapScore;
+            timeLeftDisplay.innerText = timeLeft.toFixed(2);
+            tapButtonEl.disabled = false;
+            showScreen('tapScreen');
+
+            const startTime = Date.now();
+            tapTimer = setInterval(() => {
+                const elapsed = (Date.now() - startTime) / 1000;
+                timeLeft = 5.00 - elapsed;
+                if (timeLeft <= 0) {
+                    timeLeft = 0;
+                    finishTapGame();
+                }
+                timeLeftDisplay.innerText = timeLeft.toFixed(2);
+            }, 10);
+        }
+
+        function handleTap(e) {
+            e.preventDefault();
+            if (timeLeft <= 0) return;
+
+            const powerToAdd = isRocketMode ? 3 : 1;
+            tapScore += powerToAdd;
+            tapCountDisplay.innerText = tapScore;
+
+            showTapEffect(e, `+${powerToAdd}`);
+        }
+
+        function showTapEffect(e, text) {
+            const effect = document.createElement('div');
+            effect.classList.add('tap-effect');
+            effect.innerText = text;
+            
+            let x, y;
+            if (e.touches) {
+                x = e.touches[0].clientX;
+                y = e.touches[0].clientY;
+            } else {
+                x = e.clientX;
+                y = e.clientY;
+            }
+            
+            effect.style.left = `${x}px`;
+            effect.style.top = `${y}px`;
+            document.getElementById('tapScreen').appendChild(effect);
+            setTimeout(() => effect.remove(), 500);
+        }
+
+        function finishTapGame() {
+            clearInterval(tapTimer);
+            tapButtonEl.disabled = true;
+            timeLeftDisplay.innerText = "0.00";
+            setTimeout(startFlying, 1000);
+        }
+
+        // --- 3. 飛行ゲーム ---
+        function startFlying() {
+            showScreen('flyScreen');
+            
+            let safeScore = tapScore;
+            if (safeScore <= 0) safeScore = 0.5;
+
+            maxFlightDistance = safeScore * 150; 
+            flightDistance = 0;
+            // 速度を少し速めに設定
+            flightSpeed = 15 + (maxFlightDistance / 400); 
+            bgScrollX = 0;
+            
+            playerObject.style.bottom = '20%';
+            playerObject.style.transform = 'rotate(0deg)';
+
+            flyLoop();
+        }
+
+        function flyLoop() {
+            flightDistance += flightSpeed;
+            distanceMeter.innerText = `${Math.floor(flightDistance)}m`;
+
+            bgScrollX -= flightSpeed * 0.5;
+            bgClouds.style.transform = `translateX(${bgScrollX}px)`;
+            bgGround.style.transform = `translateX(${bgScrollX * 2}px)`;
+
+            const progress = flightDistance / maxFlightDistance; 
+            
+            if (progress < 1.0) {
+                const height = Math.sin(progress * Math.PI) * 60; 
+                playerObject.style.bottom = `${20 + height}%`;
+                
+                const angle = 30 - (progress * 60); 
+                playerObject.style.transform = `rotate(${angle}deg)`;
+
+                // 【修正】減速処理を削除！最後まで勢いよく飛びます
+                // flightSpeed *= 0.95;  <-- これを消しました
+
+                flightAnimationId = requestAnimationFrame(flyLoop);
+            } else {
+                flightDistance = maxFlightDistance;
+                distanceMeter.innerText = `${Math.floor(flightDistance)}m`;
+                playerObject.style.bottom = '20%';
+                playerObject.style.transform = 'rotate(0deg)';
+                
+                setTimeout(showResult, 500); // 結果表示までの時間も短縮
+            }
+        }
+
+        // --- 4. 結果画面 ---
+        function showResult() {
+            const finalScore = Math.floor(flightDistance);
+            finalDistanceDisplay.innerText = finalScore;
+            finalPowerDisplay.innerText = tapScore;
+            
+            newRecordMsg.style.display = 'none';
+            if (finalScore > highScore) {
+                highScore = finalScore;
+                localStorage.setItem('nashiyana_fly_highscore', highScore);
+                newRecordMsg.style.display = 'block';
+            }
+            
+            resultHighScore.innerText = highScore;
+            titleHighScore.innerText = highScore;
+
+            showScreen('resultScreen');
+        }
+
+        function resetGame() {
+            isRocketMode = false;
+            secretTapCount = 0;
+            tapScore = 0;
+            
+            titleText.innerHTML = "連打で飛べ<br>なしやなくん";
+            titleText.classList.remove('rocket-mode');
+            rocketNotice.style.display = 'none';
+            playerObject.innerHTML = '✈️<div class="rocket-flame">🔥</div>';
+            playerObject.classList.remove('rocket');
+            
+            showScreen('titleScreen');
+        }
+
+    </script>
+</body>
+</html>
