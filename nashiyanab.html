@@ -1,0 +1,429 @@
+
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>ナシヤナベーダー</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            touch-action: none; /* スマホでの操作性向上 */
+            font-family: 'Courier New', sans-serif;
+        }
+        canvas {
+            border: 2px solid #33ff33;
+            box-shadow: 0 0 20px rgba(51, 255, 51, 0.5);
+            background: radial-gradient(circle at center, #111, #000);
+        }
+        #gameOverlay {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #33ff33;
+            text-align: center;
+            display: none; /* 初期は非表示 */
+            z-index: 10;
+        }
+        #gameOverlay h2 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            text-shadow: 0 0 10px #33ff33;
+        }
+        button {
+            margin-top: 20px;
+            padding: 10px 30px;
+            font-size: 1.2rem;
+            cursor: pointer;
+            background: #000;
+            border: 2px solid #33ff33;
+            color: #33ff33;
+            font-family: inherit;
+            font-weight: bold;
+        }
+        button:hover {
+            background: #33ff33;
+            color: #000;
+        }
+    </style>
+</head>
+<body>
+
+    <canvas id="gameCanvas"></canvas>
+    
+    <div id="gameOverlay">
+        <h2 id="overlayTitle">GAME OVER</h2>
+        <p>Score: <span id="finalScore">0</span></p>
+        <button onclick="startGame()">RESTART</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const overlay = document.getElementById('gameOverlay');
+        const overlayTitle = document.getElementById('overlayTitle');
+        const finalScoreText = document.getElementById('finalScore');
+
+        // 画面サイズ設定
+        function resizeCanvas() {
+            // スマホとPCで見やすい縦横比に調整
+            const aspectRatio = 3 / 4;
+            let newWidth = window.innerWidth;
+            let newHeight = window.innerHeight;
+
+            if (newWidth / newHeight > aspectRatio) {
+                newWidth = newHeight * aspectRatio;
+            } else {
+                newHeight = newWidth / aspectRatio;
+            }
+
+            canvas.width = newWidth;
+            canvas.height = newHeight;
+        }
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+
+        // --- ゲーム変数 ---
+        let gameState = "start"; // start, playing, gameover, levelup
+        let score = 0;
+        let level = 1;
+        let animationId;
+        let levelUpTimer = 0;
+
+        // --- オブジェクト定義 ---
+        
+        // プレイヤー（自機）
+        const player = {
+            width: 30, height: 20, x: 0, y: 0, speed: 5, dx: 0, color: '#33ff33',
+            init: function() {
+                this.x = canvas.width / 2 - this.width / 2;
+                this.y = canvas.height - 50;
+                // サイズ調整
+                this.width = canvas.width * 0.08;
+                this.height = this.width * 0.6;
+            },
+            draw: function() {
+                ctx.fillStyle = this.color;
+                // 凸型のような形を描画
+                ctx.fillRect(this.x, this.y + this.height/2, this.width, this.height/2);
+                ctx.fillRect(this.x + this.width/2 - this.width/8, this.y, this.width/4, this.height/2);
+            },
+            update: function() {
+                this.x += this.dx;
+                // 画面端の制限
+                if (this.x < 0) this.x = 0;
+                if (this.x + this.width > canvas.width) this.x = canvas.width - this.width;
+            },
+            shoot: function() {
+                // レベルに応じた武器発射
+                let bSpeed = 7;
+                let bSize = 4;
+                
+                switch(level) {
+                    case 1: // 標準
+                        bullets.push(new Bullet(this.x + this.width/2, this.y, 0, -bSpeed, bSize, this.color));
+                        break;
+                    case 2: // 高速
+                        bullets.push(new Bullet(this.x + this.width/2, this.y, 0, -bSpeed * 1.5, bSize, '#ffff00'));
+                        break;
+                    case 3: // ダブル
+                        bullets.push(new Bullet(this.x + this.width*0.25, this.y, 0, -bSpeed, bSize, '#00ffff'));
+                        bullets.push(new Bullet(this.x + this.width*0.75, this.y, 0, -bSpeed, bSize, '#00ffff'));
+                        break;
+                    case 4: // トリプル（拡散）
+                        bullets.push(new Bullet(this.x + this.width/2, this.y, 0, -bSpeed, bSize, '#ff00ff'));
+                        bullets.push(new Bullet(this.x + this.width/2, this.y, -2, -bSpeed*0.9, bSize, '#ff00ff'));
+                        bullets.push(new Bullet(this.x + this.width/2, this.y, 2, -bSpeed*0.9, bSize, '#ff00ff'));
+                        break;
+                    case 5: // レーザー（超高速・長細い）
+                    default:
+                        bullets.push(new Bullet(this.x + this.width/2, this.y, 0, -30, 6, '#ffffff', true)); // trueは貫通フラグ
+                        break;
+                }
+            }
+        };
+
+        // 弾クラス
+        class Bullet {
+            constructor(x, y, dx, dy, size, color, isLaser = false) {
+                this.x = x; this.y = y; this.dx = dx; this.dy = dy;
+                this.size = size; this.color = color;
+                this.isLaser = isLaser; // レーザーは敵を貫通する
+                this.height = isLaser ? 30 : size; // レーザーは縦長
+            }
+            draw() {
+                ctx.fillStyle = this.color;
+                ctx.fillRect(this.x - this.size/2, this.y, this.size, this.height);
+            }
+            update() {
+                this.x += this.dx; this.y += this.dy;
+            }
+        }
+
+        // 敵（インベーダー）クラス
+        class Enemy {
+            constructor(x, y, width, height, color) {
+                this.x = x; this.y = y; this.width = width; this.height = height; this.color = color;
+            }
+            draw() {
+                ctx.fillStyle = this.color;
+                // タコっぽい形（簡易）
+                ctx.fillRect(this.x, this.y, this.width, this.height*0.6);
+                ctx.fillRect(this.x + this.width*0.1, this.y+this.height*0.6, this.width*0.2, this.height*0.4);
+                ctx.fillRect(this.x + this.width*0.7, this.y+this.height*0.6, this.width*0.2, this.height*0.4);
+            }
+        }
+
+        // --- グローバル管理変数 ---
+        let bullets = [];
+        let enemyBullets = [];
+        let enemies = [];
+        let enemyDirection = 1; // 1:右, -1:左
+        let enemySpeed = 1;
+        let enemyDropHeight = 20;
+
+        // --- ゲームシステム関数 ---
+
+        // レベル初期化（敵の配置）
+        function initLevel() {
+            enemies = [];
+            bullets = [];
+            enemyBullets = [];
+            player.init();
+            
+            // レベルに応じて敵の数と速度を調整
+            let rows = 3 + Math.min(level, 3); // 最大6行
+            let cols = 6 + Math.min(level, 4); // 最大10列
+            enemySpeed = 1 + (level * 0.3); // スピードアップ
+            enemyDropHeight = canvas.height * 0.03;
+
+            let enemyWidth = canvas.width / (cols * 1.5);
+            let enemyHeight = enemyWidth * 0.8;
+            let startX = (canvas.width - (cols * (enemyWidth + 10))) / 2;
+
+            for (let r = 0; r < rows; r++) {
+                for (let c = 0; c < cols; c++) {
+                    // 列ごとに色を変える
+                    let color = `hsl(${c * 360 / cols}, 100%, 50%)`;
+                    enemies.push(new Enemy(
+                        startX + c * (enemyWidth + 10),
+                        50 + r * (enemyHeight + 15),
+                        enemyWidth, enemyHeight, color
+                    ));
+                }
+            }
+            gameState = "playing";
+        }
+
+        // ゲームループ
+        function gameLoop() {
+            if (gameState === "gameover") return;
+
+            // 画面クリア（少し残像を残すとかっこいいが今回はクリア）
+            ctx.fillStyle = 'rgba(0,0,0,1)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            if (gameState === "levelup") {
+                // レベルアップ演出
+                drawUI();
+                ctx.fillStyle = "#ffffff";
+                ctx.font = "bold 30px sans-serif";
+                ctx.textAlign = "center";
+                ctx.fillText(`LEVEL UP! -> Lv.${level}`, canvas.width/2, canvas.height/2);
+                
+                levelUpTimer++;
+                if(levelUpTimer > 100) { // 約1.5秒待機
+                    initLevel();
+                }
+                animationId = requestAnimationFrame(gameLoop);
+                return;
+            }
+
+            // 更新処理
+            updateObjects();
+            checkCollisions();
+
+            // 描画処理
+            drawObjects();
+            drawUI();
+
+            // レベルクリア判定
+            if (enemies.length === 0 && gameState === "playing") {
+                gameState = "levelup";
+                level++;
+                if(level > 5) level = 5; // レベル上限
+                levelUpTimer = 0;
+                // ボーナススコア
+                score += level * 1000;
+            }
+
+            animationId = requestAnimationFrame(gameLoop);
+        }
+
+        // オブジェクトの更新
+        function updateObjects() {
+            player.update();
+
+            // 弾の更新
+            bullets.forEach((b, i) => {
+                b.update();
+                if (b.y + b.height < 0) bullets.splice(i, 1); // 画面外削除
+            });
+            enemyBullets.forEach((b, i) => {
+                b.update();
+                if (b.y > canvas.height) enemyBullets.splice(i, 1);
+            });
+
+            // 敵の移動制御
+            let hitEdge = false;
+            enemies.forEach(e => {
+                e.x += enemySpeed * enemyDirection;
+                if (e.x <= 0 || e.x + e.width >= canvas.width) hitEdge = true;
+            });
+
+            if (hitEdge) {
+                enemyDirection *= -1;
+                enemies.forEach(e => {
+                    e.y += enemyDropHeight;
+                    // プレイヤーの位置まで到達したらゲームオーバー
+                    if (e.y + e.height >= player.y) {
+                        gameOver();
+                    }
+                });
+            }
+            
+            // 敵の攻撃（ランダム）
+            if (Math.random() < 0.01 + (level * 0.005) && enemies.length > 0) {
+                let shooter = enemies[Math.floor(Math.random() * enemies.length)];
+                enemyBullets.push(new Bullet(
+                    shooter.x + shooter.width/2,
+                    shooter.y + shooter.height,
+                    0, 4 + level*0.5, 6, '#ff3333' // 敵弾は赤
+                ));
+            }
+        }
+
+        // 当たり判定
+        function checkCollisions() {
+            // 自弾 vs 敵
+            bullets.forEach((b, bIdx) => {
+                enemies.forEach((e, eIdx) => {
+                    if (rectIntersect(b.x - b.size/2, b.y, b.size, b.height, e.x, e.y, e.width, e.height)) {
+                        // 当たった！
+                        if(!b.isLaser) bullets.splice(bIdx, 1); // レーザーでなければ弾を消す
+                        enemies.splice(eIdx, 1); // 敵を消す
+                        score += 100;
+                        // レーザーは貫通するのでbreakしない
+                        if(!b.isLaser) return; 
+                    }
+                });
+            });
+
+            // 敵弾 vs プレイヤー
+            enemyBullets.forEach((b) => {
+                 if (rectIntersect(b.x - b.size/2, b.y, b.size, b.height, player.x, player.y, player.width, player.height)) {
+                     gameOver();
+                 }
+            });
+        }
+
+        // 矩形当たり判定ユーティリティ
+        function rectIntersect(x1, y1, w1, h1, x2, y2, w2, h2) {
+            return x2 < x1 + w1 && x2 + w2 > x1 && y2 < y1 + h1 && y2 + h2 > y1;
+        }
+
+        // 描画
+        function drawObjects() {
+            player.draw();
+            enemies.forEach(e => e.draw());
+            bullets.forEach(b => b.draw());
+            enemyBullets.forEach(b => b.draw());
+        }
+
+        // UI描画
+        function drawUI() {
+            ctx.fillStyle = '#33ff33';
+            ctx.font = "20px Courier New";
+            ctx.textAlign = "left";
+            ctx.fillText(`SCORE: ${score}`, 20, 30);
+            ctx.textAlign = "right";
+            ctx.fillText(`LEVEL: ${level}`, canvas.width - 20, 30);
+            
+            ctx.textAlign = "center";
+            ctx.font = "bold 24px Courier New";
+            ctx.fillText(`ナシヤナベーダー`, canvas.width / 2, 30);
+            
+            // 現在の武器表示
+            let weaponName = ["", "標準", "高速", "ダブル", "トリプル", "レーザー(MAX)"][level];
+            ctx.font = "16px Courier New";
+            ctx.fillText(`WEAPON: ${weaponName}`, canvas.width / 2, canvas.height - 10);
+        }
+
+        function gameOver() {
+            gameState = "gameover";
+            cancelAnimationFrame(animationId);
+            overlayTitle.innerText = "GAME OVER";
+            finalScoreText.innerText = score;
+            overlay.style.display = 'block';
+        }
+
+        function startGame() {
+            overlay.style.display = 'none';
+            score = 0;
+            level = 1;
+            initLevel();
+            gameLoop();
+        }
+
+        // --- 操作イベント ---
+        
+        // PC用（キーボード）
+        document.addEventListener('keydown', (e) => {
+            if (gameState !== "playing") return;
+            if (e.key === 'ArrowLeft') player.dx = -player.speed;
+            if (e.key === 'ArrowRight') player.dx = player.speed;
+            if (e.code === 'Space') player.shoot();
+        });
+        document.addEventListener('keyup', (e) => {
+            if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') player.dx = 0;
+        });
+
+        // スマホ用（タッチ操作）
+        let touchStartX = 0;
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault(); // スクロール防止
+            if (gameState !== "playing") return;
+            touchStartX = e.touches[0].clientX;
+            player.shoot(); // タップで発射
+        }, {passive: false});
+
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            if (gameState !== "playing") return;
+            let touchX = e.touches[0].clientX;
+            let diffX = touchX - touchStartX;
+            
+            // 移動量に応じてプレイヤーを動かす（感度調整）
+            player.x += diffX * 0.1; 
+            // 画面端チェック
+            if (player.x < 0) player.x = 0;
+            if (player.x + player.width > canvas.width) player.x = canvas.width - player.width;
+            
+        }, {passive: false});
+
+        // ゲーム開始待機
+        gameState = "gameover"; // 初期状態をゲームオーバー画面にしてスタートボタンを押させる
+        overlayTitle.innerText = "ナシヤナベーダー";
+        finalScoreText.innerText = "READY?";
+        overlay.style.display = 'block';
+
+    </script>
+</body>
+</html>
