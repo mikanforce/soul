@@ -1,0 +1,237 @@
+
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>チンチロリン</title>
+    <style>
+        body {
+            font-family: "Hiragino Mincho ProN", "Yu Mincho", serif; /* 和風フォント */
+            background-color: #2e8b57; /* 賭場の羅紗（ラシャ）のような緑 */
+            color: white;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            overflow: hidden;
+        }
+        h1 { margin: 0 0 20px 0; text-shadow: 2px 2px 4px #000; }
+        
+        /* どんぶり */
+        .bowl {
+            width: 300px;
+            height: 300px;
+            background: radial-gradient(circle at 30% 30%, #fff, #ddd 60%, #bbb 100%);
+            border-radius: 50%;
+            border: 10px solid #e0e0e0;
+            box-shadow: inset 10px 10px 30px rgba(0,0,0,0.5), 10px 10px 20px rgba(0,0,0,0.5);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            margin-bottom: 20px;
+        }
+
+        .dice-area {
+            font-size: 4rem;
+            color: #d32f2f; /* サイコロの赤 */
+            text-shadow: 2px 2px 5px rgba(0,0,0,0.3);
+            letter-spacing: 10px;
+            height: 80px;
+        }
+
+        .message {
+            margin-top: 10px;
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #333;
+            text-shadow: 1px 1px 0px #fff;
+            height: 30px;
+        }
+
+        .status-area {
+            width: 90%;
+            max-width: 400px;
+            background: rgba(0,0,0,0.5);
+            padding: 15px;
+            border-radius: 10px;
+            text-align: center;
+        }
+
+        .result-text {
+            font-size: 1.2rem;
+            margin: 5px 0;
+            min-height: 1.5em;
+        }
+
+        button {
+            margin-top: 20px;
+            padding: 15px 40px;
+            font-size: 1.2rem;
+            font-weight: bold;
+            cursor: pointer;
+            background: linear-gradient(#ffeb3b, #fbc02d);
+            color: #333;
+            border: none;
+            border-radius: 30px;
+            box-shadow: 0 5px 0 #f57f17, 0 10px 10px rgba(0,0,0,0.3);
+            transition: transform 0.1s, box-shadow 0.1s;
+        }
+        button:active {
+            transform: translateY(5px);
+            box-shadow: 0 0 0 #f57f17, 0 0 0 rgba(0,0,0,0);
+        }
+        button:disabled {
+            background: #ccc;
+            box-shadow: none;
+            color: #888;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>チンチロリン</h1>
+
+    <div class="bowl">
+        <div class="dice-area" id="diceDisplay">⚀ ⚁ ⚂</div>
+        <div class="message" id="bowlMessage">さあ、勝負！</div>
+    </div>
+
+    <div class="status-area">
+        <div class="result-text" id="playerResult">あなた: 未プレイ</div>
+        <div class="result-text" id="cpuResult">親(CPU): 待機中</div>
+        <div class="result-text" id="finalResult" style="color:yellow; font-weight:bold;"></div>
+    </div>
+
+    <button id="rollBtn" onclick="playGame()">賽を振る</button>
+
+    <script>
+        const diceChars = ['⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
+        const diceDisplay = document.getElementById('diceDisplay');
+        const bowlMessage = document.getElementById('bowlMessage');
+        const playerResultEl = document.getElementById('playerResult');
+        const cpuResultEl = document.getElementById('cpuResult');
+        const finalResultEl = document.getElementById('finalResult');
+        const btn = document.getElementById('rollBtn');
+
+        // 役の強さ定義
+        const STRENGTH = {
+            PINZORO: 100, // 1-1-1
+            SIGORO: 90,   // 4-5-6
+            ARASHI: 80,   // ゾロ目 (2~6)
+            POINT: 10,    // 目あり (ポイント)
+            MENASHI: 0,   // 目なし
+            HIFUMI: -1    // 1-2-3 (即負け)
+        };
+
+        function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+
+        function rollDice() {
+            return [
+                Math.floor(Math.random() * 6) + 1,
+                Math.floor(Math.random() * 6) + 1,
+                Math.floor(Math.random() * 6) + 1
+            ];
+        }
+
+        // 役判定ロジック
+        function evaluateHand(dice) {
+            dice.sort((a, b) => a - b); // 並び替え
+            const [d1, d2, d3] = dice;
+
+            // ピンゾロ (1-1-1)
+            if (d1 === 1 && d2 === 1 && d3 === 1) return { name: "ピンゾロ！", strength: STRENGTH.PINZORO, point: 5 };
+            // アラシ (2~6のゾロ目)
+            if (d1 === d2 && d2 === d3) return { name: `${d1}のアラシ`, strength: STRENGTH.ARASHI, point: 3 };
+            // シゴロ (4-5-6)
+            if (d1 === 4 && d2 === 5 && d3 === 6) return { name: "シゴロ！", strength: STRENGTH.SIGORO, point: 2 };
+            // ヒフミ (1-2-3)
+            if (d1 === 1 && d2 === 2 && d3 === 3) return { name: "ヒフミ…", strength: STRENGTH.HIFUMI, point: 0 };
+            
+            // 通常の目 (ペアがあるか)
+            if (d1 === d2) return { name: `${d3}の目`, strength: STRENGTH.POINT + d3, point: 1 }; // [1,1,3] -> 3
+            if (d2 === d3) return { name: `${d1}の目`, strength: STRENGTH.POINT + d1, point: 1 }; // [1,3,3] -> 1
+            if (d1 === d3) return { name: `${d2}の目`, strength: STRENGTH.POINT + d2, point: 1 }; // ここには来ないはずだが念のため
+
+            // 目なし
+            return { name: "目なし", strength: STRENGTH.MENASHI, point: 0 };
+        }
+
+        // 3回振って役を決める処理
+        async function turn(who) {
+            let result = null;
+            for (let i = 1; i <= 3; i++) {
+                bowlMessage.innerText = `${who}の ${i}回目...`;
+                
+                // サイコロ回転演出
+                for(let j=0; j<10; j++){
+                    let tempDice = rollDice();
+                    diceDisplay.innerText = tempDice.map(d => diceChars[d-1]).join(' ');
+                    await sleep(50);
+                }
+
+                let currentDice = rollDice();
+                diceDisplay.innerText = currentDice.map(d => diceChars[d-1]).join(' ');
+                
+                let evaluation = evaluateHand(currentDice);
+                
+                // 目なしかつ3回目未満なら次へ
+                if (evaluation.strength === STRENGTH.MENASHI && i < 3) {
+                    await sleep(500);
+                    continue;
+                }
+                
+                result = evaluation;
+                break;
+            }
+            // 3回とも目なしの場合
+            if (!result) result = { name: "目なし", strength: STRENGTH.MENASHI, point: 0 };
+            
+            bowlMessage.innerText = result.name;
+            return result;
+        }
+
+        async function playGame() {
+            btn.disabled = true;
+            finalResultEl.innerText = "";
+            cpuResultEl.innerText = "親(CPU): 待機中";
+            
+            // プレイヤーのターン
+            diceDisplay.style.color = "#d32f2f";
+            const playerRes = await turn("あなた");
+            playerResultEl.innerText = `あなた: ${playerRes.name}`;
+            
+            // 即勝ち/即負け判定（シゴロ以上・ヒフミ）があればここで終わってもいいが、今回は単純な数値比較にする
+            await sleep(1000);
+
+            // CPUのターン
+            diceDisplay.style.color = "#333";
+            const cpuRes = await turn("親(CPU)");
+            cpuResultEl.innerText = `親(CPU): ${cpuRes.name}`;
+
+            await sleep(500);
+
+            // 勝敗判定
+            let msg = "";
+            if (playerRes.strength > cpuRes.strength) {
+                msg = "あなたの勝ち！";
+                finalResultEl.style.color = "#ffeb3b"; // 金色
+            } else if (playerRes.strength < cpuRes.strength) {
+                msg = "親の総取り…（負け）";
+                finalResultEl.style.color = "#ff8a80"; // 赤
+            } else {
+                msg = "引き分け";
+                finalResultEl.style.color = "#fff";
+            }
+            finalResultEl.innerText = msg;
+            btn.disabled = false;
+            btn.innerText = "もう一勝負";
+        }
+    </script>
+</body>
+</html>

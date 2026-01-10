@@ -1,0 +1,347 @@
+
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>超なしやな走（鬼）</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #2c3e50; /* 空の色を不穏な暗さに変更 */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            touch-action: manipulation;
+        }
+        canvas {
+            border-bottom: 4px solid #555;
+            box-shadow: 0px 5px 15px rgba(0,0,0,0.5);
+            background-color: rgba(0,0,0,0.3);
+        }
+        #gameOverScreen {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(100, 0, 0, 0.9); /* 赤黒い背景 */
+            color: white;
+            padding: 40px;
+            text-align: center;
+            border-radius: 15px;
+            display: none;
+            width: 80%;
+            max-width: 400px;
+            z-index: 10;
+            border: 2px solid #ff5252;
+        }
+        #gameOverScreen h2 { 
+            margin-top: 0; 
+            color: #ff5252; 
+            font-size: 2.5rem;
+            text-shadow: 3px 3px 0 #000;
+            font-family: sans-serif;
+        }
+        .score-info {
+            font-size: 1.2rem;
+            margin: 10px 0;
+        }
+        .new-record {
+            color: #ffeb3b;
+            font-weight: bold;
+            font-size: 1.5rem;
+            display: none;
+            animation: flash 0.5s infinite;
+        }
+        @keyframes flash {
+            0% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(1.1); }
+            100% { opacity: 1; transform: scale(1); }
+        }
+        button {
+            margin-top: 20px;
+            padding: 15px 30px;
+            font-size: 1.2rem;
+            cursor: pointer;
+            background: #000; border: 2px solid #ff5252; border-radius: 50px; color: #ff5252;
+            font-weight: bold;
+            transition: all 0.1s;
+        }
+        button:active {
+            background: #ff5252;
+            color: #000;
+        }
+    </style>
+</head>
+<body>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <div id="gameOverScreen">
+        <h2>GAME OVER</h2>
+        <div id="newRecordMsg" class="new-record">新記録達成！</div>
+        <p class="score-info">記録: <span id="finalScore" style="font-weight:bold;">0</span> m</p>
+        <p class="score-info" style="color:#ccc; font-size:1rem;">(ハイスコア: <span id="bestScoreDisplay">0</span> m)</p>
+        <button onclick="resetGame()">再挑戦</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const gameOverScreen = document.getElementById('gameOverScreen');
+        const finalScoreText = document.getElementById('finalScore');
+        const bestScoreDisplayText = document.getElementById('bestScoreDisplay');
+        const newRecordMsg = document.getElementById('newRecordMsg');
+
+        let highScore = localStorage.getItem('nashiyana_hard_highscore') || 0;
+
+        function resizeCanvas() {
+            canvas.width = window.innerWidth > 800 ? 800 : window.innerWidth - 20;
+            canvas.height = 400;
+        }
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+
+        // --- 設定（鬼ムズ仕様） ---
+        const GRAVITY = 0.6;
+        const JUMP_POWER = -11; // ジャンプ力を少し強化（高低差対応のため）
+        const BASE_SPEED = 6;   // 初速から速め
+        
+        let currentSpeed = BASE_SPEED;
+        let score = 0;
+        let isGameOver = false;
+        let animationId;
+
+        // --- プレイヤー ---
+        let player = {
+            x: 50, y: 200, width: 30, height: 30, vy: 0,
+            jumpCount: 0,
+            draw: function() {
+                ctx.fillStyle = '#ffeb3b'; // キャラを目立つ黄色に
+                ctx.fillRect(this.x, this.y, this.width, this.height);
+                ctx.fillStyle = '#000';
+                ctx.beginPath(); ctx.arc(this.x + 5, this.y + this.height, 5, 0, Math.PI*2); ctx.fill();
+                ctx.beginPath(); ctx.arc(this.x + this.width - 5, this.y + this.height, 5, 0, Math.PI*2); ctx.fill();
+                ctx.fillStyle = 'black';
+                ctx.font = 'bold 12px sans-serif';
+                ctx.fillText('鬼', this.x + 8, this.y + 20);
+            },
+            update: function() {
+                this.vy += GRAVITY;
+                this.y += this.vy;
+                if (this.y + this.height > canvas.height + 100) {
+                    endGame();
+                }
+            },
+            jump: function() {
+                if (this.jumpCount < 2) {
+                    this.vy = JUMP_POWER;
+                    this.jumpCount++;
+                }
+            }
+        };
+
+        // --- 足場管理 ---
+        let grounds = [];
+        
+        function initGrounds() {
+            grounds = [];
+            // 最初だけ安全な足場
+            grounds.push({ x: 0, y: 300, width: canvas.width, height: 100, obstacles: [] });
+        }
+
+        function manageGrounds() {
+            let lastGround = grounds[grounds.length - 1];
+            
+            // 新しい足場を作る
+            if (lastGround.x + lastGround.width < canvas.width) {
+                let currentMeters = Math.floor(score/10);
+                
+                // --- 難易度調整ロジック ---
+                
+                // 1. 穴の幅 (スピードに合わせて広くなる)
+                let minGap = 50;
+                let maxGap = 100 + (currentMeters / 10); // 進むほど穴が広がる
+                if(maxGap > 220) maxGap = 220; // 限界値
+                let gap = Math.random() * (maxGap - minGap) + minGap;
+
+                // 2. 足場の幅 (進むほど狭くなる可能性)
+                let minWidth = 50; // かなり狭い
+                if(currentMeters < 100) minWidth = 150; // 最初は優しく
+                let newWidth = Math.random() * 300 + minWidth;
+
+                // 3. 高さの変化 (上下に揺さぶる)
+                let heightDiff = Math.random() * 160 - 80; // -80px 〜 +80px
+                let newY = lastGround.y + heightDiff;
+                
+                // 画面外に行かないように制限 (Y: 150〜350の間)
+                if (newY < 150) newY = 150;
+                if (newY > 350) newY = 350;
+
+                let newGround = {
+                    x: lastGround.x + lastGround.width + gap,
+                    y: newY,
+                    width: newWidth,
+                    height: 100, // 厚みは固定
+                    obstacles: []
+                };
+
+                // 4. 障害物の生成 (100mから出現、出現率高め)
+                if (currentMeters >= 100 && Math.random() < 0.5) { // 50%で出現
+                    let obsRelX = Math.random() * (newWidth - 40) + 20;
+                    // 足場が狭すぎる場合は障害物を出さない（無理ゲー回避）
+                    if(newWidth > 80) {
+                        newGround.obstacles.push({
+                            relativeX: obsRelX,
+                            y: newY - 30,
+                            width: 30,
+                            height: 30
+                        });
+                    }
+                }
+                grounds.push(newGround);
+            }
+
+            // 更新と描画
+            grounds.forEach((g, index) => {
+                g.x -= currentSpeed; // 可変スピード
+                
+                // 地面
+                ctx.fillStyle = '#7f8c8d'; // コンクリート色
+                ctx.fillRect(g.x, g.y, g.width, g.height);
+                ctx.fillStyle = '#95a5a6'; // ディテール
+                ctx.fillRect(g.x, g.y, g.width, 5);
+
+                // 障害物
+                g.obstacles.forEach(obs => {
+                    let obsActualX = g.x + obs.relativeX;
+                    ctx.fillStyle = '#ff5252';
+                    ctx.beginPath();
+                    ctx.moveTo(obsActualX, obs.y + obs.height);
+                    ctx.lineTo(obsActualX + obs.width / 2, obs.y);
+                    ctx.lineTo(obsActualX + obs.width, obs.y + obs.height);
+                    ctx.closePath();
+                    ctx.fill();
+                });
+
+                if (g.x + g.width < 0) grounds.splice(index, 1);
+            });
+        }
+
+        // --- 当たり判定 ---
+        function checkCollisions() {
+            // 地面判定
+            let onGround = false;
+            grounds.forEach(g => {
+                if (player.x + player.width > g.x && player.x < g.x + g.width &&
+                    player.y + player.height >= g.y && player.y + player.height <= g.y + currentSpeed + 15 && // 判定を少し甘く
+                    player.vy >= 0) {
+                        player.y = g.y - player.height;
+                        player.vy = 0;
+                        player.jumpCount = 0;
+                        onGround = true;
+                }
+                
+                // 障害物判定
+                g.obstacles.forEach(obs => {
+                    let obsActualX = g.x + obs.relativeX;
+                    // 判定を少し小さくして「理不尽な死」を減らす
+                    if (player.x + 5 < obsActualX + obs.width &&
+                        player.x + player.width - 5 > obsActualX &&
+                        player.y + 5 < obs.y + obs.height &&
+                        player.y + player.height - 5 > obs.y) {
+                        endGame();
+                    }
+                });
+            });
+            if(!onGround) player.jumpCount = Math.max(player.jumpCount, 1); // 空中なら最低1回ジャンプ消費扱い
+            // ※ここを厳密にすると「崖から落ちた時のジャンプ」ができなくなるので、
+            // 操作性向上のため「着地してなければ空中ジャンプ可(残り1回)」とする調整も可だが、
+            // 今回は「降りる」動作でもジャンプカウントはリセットしない仕様のままにする。
+        }
+
+        // --- ループ ---
+        function gameLoop() {
+            if (isGameOver) return;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // スピード加速ロジック (スコアに応じて早くなる)
+            // 1000mでMAXスピード(12)になるように調整
+            let speedBoost = Math.floor(score/1000); 
+            currentSpeed = BASE_SPEED + speedBoost;
+            if(currentSpeed > 13) currentSpeed = 13; // 速度上限
+
+            manageGrounds();
+            player.update();
+            checkCollisions();
+            player.draw();
+
+            // 情報表示
+            score++;
+            let currentMeters = Math.floor(score/10);
+
+            ctx.fillStyle = '#fff';
+            ctx.textAlign = 'left';
+            ctx.font = 'bold 24px sans-serif';
+            ctx.fillText('超なしやな走【鬼】', 20, 40);
+            
+            ctx.font = '16px sans-serif';
+            ctx.fillText(`現在: ${currentMeters}m`, 20, 70);
+            ctx.fillText(`速度: Lv.${Math.floor(currentSpeed - BASE_SPEED + 1)}`, 20, 95);
+
+            ctx.textAlign = 'right';
+            ctx.fillStyle = '#ff5252';
+            ctx.fillText(`最高記録: ${highScore}m`, canvas.width - 20, 40);
+
+            animationId = requestAnimationFrame(gameLoop);
+        }
+
+        // --- 入力 ---
+        function handleInput(e) {
+            e.preventDefault();
+            if (isGameOver) return;
+            player.jump();
+        }
+        canvas.addEventListener('touchstart', handleInput, {passive: false});
+        canvas.addEventListener('mousedown', handleInput);
+        document.addEventListener('keydown', (e) => { if(e.code === 'Space') handleInput(e); });
+
+        // --- ゲーム終了 ---
+        function endGame() {
+            if(isGameOver) return;
+            isGameOver = true;
+            cancelAnimationFrame(animationId);
+            
+            let currentMeters = Math.floor(score/10);
+            if (currentMeters > highScore) {
+                highScore = currentMeters;
+                localStorage.setItem('nashiyana_hard_highscore', highScore);
+                newRecordMsg.style.display = 'block';
+            } else {
+                newRecordMsg.style.display = 'none';
+            }
+
+            finalScoreText.innerText = currentMeters;
+            bestScoreDisplayText.innerText = highScore;
+            gameOverScreen.style.display = 'block';
+        }
+
+        function resetGame() {
+            isGameOver = false;
+            gameOverScreen.style.display = 'none';
+            player.y = 200;
+            player.vy = 0;
+            player.jumpCount = 0;
+            score = 0;
+            currentSpeed = BASE_SPEED;
+            initGrounds();
+            gameLoop();
+        }
+
+        initGrounds();
+        gameLoop();
+    </script>
+</body>
+</html>

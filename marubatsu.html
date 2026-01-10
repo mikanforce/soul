@@ -1,0 +1,162 @@
+
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>◯×ゲーム</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f0f8ff;
+        }
+        h1 { margin-bottom: 20px; color: #333; }
+        .status { margin-bottom: 20px; font-size: 1.5rem; font-weight: bold; height: 30px;}
+        .board {
+            display: grid;
+            grid-template-columns: repeat(3, 100px);
+            grid-template-rows: repeat(3, 100px);
+            gap: 5px;
+            background-color: #333;
+            border: 5px solid #333;
+            border-radius: 10px;
+        }
+        .cell {
+            background-color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 3rem;
+            cursor: pointer;
+            user-select: none;
+        }
+        .cell:hover { background-color: #eee; }
+        .cell.taken { cursor: not-allowed; }
+        .cell.win { background-color: #ffeb3b; }
+        
+        button {
+            margin-top: 30px;
+            padding: 10px 20px;
+            font-size: 1rem;
+            cursor: pointer;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+        }
+        button:hover { background-color: #0056b3; }
+    </style>
+</head>
+<body>
+
+    <h1>◯×ゲーム</h1>
+    <div class="status" id="status">◯ の番です</div>
+    <div class="board" id="board"></div>
+    <button onclick="resetGame()">リセット</button>
+
+    <script>
+        const boardElement = document.getElementById('board');
+        const statusElement = document.getElementById('status');
+        let currentPlayer = '◯';
+        let gameActive = true;
+        let gameState = ["", "", "", "", "", "", "", "", ""];
+
+        const winningConditions = [
+            [0, 1, 2], [3, 4, 5], [6, 7, 8], // 横
+            [0, 3, 6], [1, 4, 7], [2, 5, 8], // 縦
+            [0, 4, 8], [2, 4, 6]             // 斜め
+        ];
+
+        // ボードの生成
+        function createBoard() {
+            boardElement.innerHTML = "";
+            gameState.forEach((cell, index) => {
+                const cellElement = document.createElement('div');
+                cellElement.classList.add('cell');
+                cellElement.setAttribute('data-index', index);
+                cellElement.addEventListener('click', handleCellClick);
+                boardElement.appendChild(cellElement);
+            });
+        }
+
+        function handleCellClick(e) {
+            const clickedCell = e.target;
+            const clickedCellIndex = parseInt(clickedCell.getAttribute('data-index'));
+
+            if (gameState[clickedCellIndex] !== "" || !gameActive) {
+                return;
+            }
+
+            handleCellPlayed(clickedCell, clickedCellIndex);
+            handleResultValidation();
+        }
+
+        function handleCellPlayed(clickedCell, clickedCellIndex) {
+            gameState[clickedCellIndex] = currentPlayer;
+            clickedCell.textContent = currentPlayer;
+            clickedCell.classList.add('taken');
+            if(currentPlayer === '◯') clickedCell.style.color = "red";
+            else clickedCell.style.color = "blue";
+        }
+
+        function handleResultValidation() {
+            let roundWon = false;
+            let winningLine = [];
+
+            for (let i = 0; i <= 7; i++) {
+                const winCondition = winningConditions[i];
+                let a = gameState[winCondition[0]];
+                let b = gameState[winCondition[1]];
+                let c = gameState[winCondition[2]];
+                if (a === '' || b === '' || c === '') continue;
+                if (a === b && b === c) {
+                    roundWon = true;
+                    winningLine = winCondition;
+                    break;
+                }
+            }
+
+            if (roundWon) {
+                statusElement.innerText = `勝者: ${currentPlayer}！`;
+                gameActive = false;
+                highlightWinner(winningLine);
+                return;
+            }
+
+            let roundDraw = !gameState.includes("");
+            if (roundDraw) {
+                statusElement.innerText = "引き分け！";
+                gameActive = false;
+                return;
+            }
+
+            currentPlayer = currentPlayer === "◯" ? "×" : "◯";
+            statusElement.innerText = `${currentPlayer} の番です`;
+        }
+
+        function highlightWinner(line) {
+            const cells = document.querySelectorAll('.cell');
+            line.forEach(index => {
+                cells[index].classList.add('win');
+            });
+        }
+
+        function resetGame() {
+            gameActive = true;
+            currentPlayer = "◯";
+            gameState = ["", "", "", "", "", "", "", "", ""];
+            statusElement.innerText = `${currentPlayer} の番です`;
+            createBoard();
+        }
+
+        // 初期化
+        createBoard();
+    </script>
+</body>
+</html>
