@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>ナシヤナスロット改</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            color: white;
+            font-family: 'Verdana', sans-serif;
+            touch-action: none; 
+        }
+
+        #gameWrapper {
+            transform-origin: center center;
+            width: 360px;
+            height: 700px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        #slotMachine {
+            position: relative;
+            width: 360px;
+            height: 680px;
+            background: linear-gradient(135deg, #222, #000);
+            border: 10px solid #ff4081;
+            border-radius: 20px;
+            box-shadow: 0 0 50px rgba(255, 64, 129, 0.3);
+            text-align: center;
+            overflow: hidden;
+            user-select: none;
+            box-sizing: border-box;
+        }
+
+        .reel-container {
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            background-color: #fff;
+            height: 300px;
+            margin-top: 50px;
+            border-top: 5px solid #555;
+            border-bottom: 5px solid #555;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .center-line {
+            position: absolute;
+            top: 50%; left: 0; width: 100%; height: 4px;
+            background-color: rgba(255, 0, 0, 0.6);
+            z-index: 10;
+            transform: translateY(-50%);
+            box-shadow: 0 0 10px red;
+            pointer-events: none;
+        }
+
+        canvas { background-color: white; }
+
+        .info-panel { margin-top: 10px; height: 80px; pointer-events: none; }
+        #roundDisplay { font-size: 1rem; color: #aaa; margin-bottom: 5px; }
+        #scoreDisplay { font-size: 1.8rem; color: #d4af37; text-shadow: 0 0 5px gold; font-weight: bold; }
+        #messageDisplay { height: 30px; font-size: 1.1rem; color: #00e5ff; font-weight: bold; margin-top: 5px; }
+
+        .button-panel {
+            display: flex;
+            justify-content: space-around;
+            margin-top: 15px;
+            padding: 0 20px;
+        }
+        .stop-btn {
+            width: 70px; height: 70px;
+            border-radius: 50%;
+            background: radial-gradient(circle, #ff5252, #b71c1c);
+            border: 4px solid #fff;
+            color: white;
+            font-weight: bold;
+            font-size: 1.1rem;
+            cursor: pointer;
+            box-shadow: 0 5px 0 #7f0000, 0 10px 10px rgba(0,0,0,0.5);
+            transition: transform 0.05s;
+            touch-action: manipulation; 
+        }
+        .stop-btn:active { transform: translateY(5px); box-shadow: 0 0 0 #7f0000; }
+        .stop-btn:disabled { background: #555; box-shadow: none; border-color: #888; cursor: not-allowed; color: #aaa; }
+
+        #startLever {
+            width: 200px; padding: 15px; font-size: 1.5rem;
+            margin: 15px auto;
+            background: linear-gradient(#ffeb3b, #fbc02d);
+            color: #333; border: none; border-radius: 10px;
+            cursor: pointer; font-weight: bold;
+            box-shadow: 0 5px 0 #f57f17;
+        }
+        #startLever:active { transform: translateY(5px); box-shadow: none; }
+        
+        #overlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.95);
+            display: flex; flex-direction: column;
+            justify-content: center; align-items: center; 
+            z-index: 999;
+        }
+        h1 { margin: 0; font-size: 2.5rem; color: #ff4081; text-shadow: 2px 2px 0 #fff; line-height: 1.2; pointer-events: none; }
+        .cheat-active { color: #fff !important; text-shadow: 0 0 20px gold, 0 0 40px red !important; }
+        
+        #hiddenBtn {
+            position: fixed; top: 0; left: 0; width: 100px; height: 100px; z-index: 10000;
+        }
+        
+        #finalResultBox { display: none; text-align: center; }
+        
+        .play-btn {
+            padding:15px 40px; font-size:1.5rem; border-radius:30px; border:none; 
+            background:gold; cursor:pointer; font-weight:bold; margin-top:20px;
+            z-index: 1001; position: relative;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="hiddenBtn"></div>
+
+    <div id="gameWrapper">
+        <div id="slotMachine">
+            <div style="padding-top:10px; font-weight:bold; color:#888; font-size:0.8rem;">TARGET 7</div>
+            <div style="font-size:1.5rem; font-weight:bold; color:white; text-shadow:0 0 10px #ff4081;">NASHIYANA SLOT</div>
+
+            <div class="reel-container">
+                <div class="center-line"></div>
+                <canvas id="reel1" width="100" height="300"></canvas>
+                <canvas id="reel2" width="100" height="300"></canvas>
+                <canvas id="reel3" width="100" height="300"></canvas>
+            </div>
+
+            <div class="info-panel">
+                <div id="roundDisplay">ROUND 1 / 3</div>
+                <div id="scoreDisplay">TOTAL: 0</div>
+                <div id="highScoreDisplay" style="font-size:0.8rem; color:#888;">High: 0</div>
+                <div id="messageDisplay">7を狙え！！</div>
+            </div>
+
+            <div class="button-panel">
+                <button class="stop-btn" id="btn1" onmousedown="stopReel(0)" ontouchstart="stopReel(0)">左</button>
+                <button class="stop-btn" id="btn2" onmousedown="stopReel(1)" ontouchstart="stopReel(1)">中</button>
+                <button class="stop-btn" id="btn3" onmousedown="stopReel(2)" ontouchstart="stopReel(2)">右</button>
+            </div>
+
+            <button id="startLever" onclick="spinReels()">START</button>
+        </div>
+
+        <div id="overlay">
+            <h1 id="titleText">ナシヤナ<br>スロット<br><span style="font-size:1.5rem; color:white;">〜7を狙え〜</span></h1>
+            
+            <div id="startMenu">
+                <p style="color:#aaa; margin-top:20px;">全3回戦<br>上から来る7を目押ししろ</p>
+                <button class="play-btn" onclick="gameStart()">PLAY</button>
+            </div>
+
+            <div id="finalResultBox">
+                <h2 style="color:gold; font-size:2rem; margin:10px;">FINISH!</h2>
+                <p style="color:white; font-size:1.2rem;">最終スコア</p>
+                <p id="finalScoreVal" style="color:white; font-size:3rem; font-weight:bold; margin:0;">0</p>
+                <div id="newRecordMsg" style="color:#ff4081; font-weight:bold; font-size:1.5rem; display:none; animation:flash 0.5s infinite;">NEW RECORD!</div>
+                <button class="play-btn" onclick="gameStart()">もう一度</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function resizeGame() {
+            const wrapper = document.getElementById('gameWrapper');
+            const height = window.innerHeight;
+            const width = window.innerWidth;
+            const scaleH = height / 720; 
+            const scaleW = width / 380;
+            const scale = Math.min(scaleH, scaleW, 1.0);
+            wrapper.style.transform = `scale(${scale})`;
+        }
+        window.addEventListener('resize', resizeGame);
+        resizeGame(); 
+
+        const SYMBOL_HEIGHT = 100; 
+        const REEL_SPEED = 25; // ★速度を 40 -> 25 に変更（ゆっくりに）★
+        const SYMBOLS = ['7', 'YUKKIE', 'URBAN', 'BELL', 'CHERRY']; 
+        const REEL_STRIP = [0, 3, 4, 1, 3, 4, 2, 3, 4, 0, 3, 1, 2, 4, 0, 2, 4, 1, 3, 2]; 
+
+        let reels = [
+            { id: 0, y: 0, speed: 0, state: 'stop', targetY: 0 },
+            { id: 1, y: 0, speed: 0, state: 'stop', targetY: 0 },
+            { id: 2, y: 0, speed: 0, state: 'stop', targetY: 0 }
+        ];
+        
+        let totalScore = 0;
+        let currentRound = 1;
+        const MAX_ROUNDS = 3;
+        let activeReels = 0;
+        let animationId;
+        
+        let highScore = 0;
+        try { highScore = localStorage.getItem('nashiyana_slot7_highscore') || 0; } catch(e){}
+
+        let cheatCount = 0;
+        let isCheatMode = false;
+
+        const canvases = [document.getElementById('reel1'), document.getElementById('reel2'), document.getElementById('reel3')];
+        const contexts = canvases.map(c => c.getContext('2d'));
+        const scoreDisplay = document.getElementById('scoreDisplay');
+        const highScoreDisplay = document.getElementById('highScoreDisplay');
+        const messageDisplay = document.getElementById('messageDisplay');
+        const roundDisplay = document.getElementById('roundDisplay');
+        const btns = [document.getElementById('btn1'), document.getElementById('btn2'), document.getElementById('btn3')];
+        const startLever = document.getElementById('startLever');
+        
+        const overlay = document.getElementById('overlay');
+        const titleText = document.getElementById('titleText');
+        const startMenu = document.getElementById('startMenu');
+        const finalResultBox = document.getElementById('finalResultBox');
+        const finalScoreVal = document.getElementById('finalScoreVal');
+        const newRecordMsg = document.getElementById('newRecordMsg');
+        const hiddenBtn = document.getElementById('hiddenBtn');
+
+        highScoreDisplay.innerText = `High: ${highScore}`;
+        drawAllReels();
+
+        hiddenBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            cheatCount++;
+            if(cheatCount === 15) {
+                isCheatMode = true;
+                titleText.classList.add('cheat-active');
+                titleText.innerHTML = "GOD<br>MODE";
+                alert("GODモード：どこで押しても7が揃います");
+            }
+        });
+
+        window.gameStart = function() {
+            overlay.style.display = 'none';
+            startMenu.style.display = 'block';
+            finalResultBox.style.display = 'none';
+            hiddenBtn.style.pointerEvents = 'none';
+            
+            totalScore = 0;
+            currentRound = 1;
+            updateUI();
+            
+            reels.forEach(r => r.y = 0); 
+            drawAllReels();
+            
+            btns.forEach(b => b.disabled = true);
+            startLever.disabled = false;
+            messageDisplay.innerText = "STARTで回転";
+        }
+
+        function updateUI() {
+            scoreDisplay.innerText = `TOTAL: ${totalScore}`;
+            roundDisplay.innerText = `ROUND ${currentRound} / ${MAX_ROUNDS}`;
+        }
+
+        window.spinReels = function() {
+            if (activeReels > 0) return;
+            if (currentRound > MAX_ROUNDS) { showFinalResult(); return; }
+
+            startLever.disabled = true;
+            messageDisplay.innerText = "7を狙え！！";
+            messageDisplay.style.color = "#ff4081";
+            
+            activeReels = 3;
+            btns.forEach((b, i) => {
+                b.disabled = false;
+                reels[i].state = 'spin';
+                reels[i].speed = REEL_SPEED;
+            });
+
+            if (!animationId) loop();
+        }
+
+        function loop() {
+            update();
+            drawAllReels();
+            animationId = requestAnimationFrame(loop);
+        }
+
+        function update() {
+            reels.forEach(r => {
+                if (r.state === 'spin') {
+                    r.y += r.speed; 
+                } else if (r.state === 'slipping') {
+                    let diff = r.targetY - r.y;
+                    if (Math.abs(diff) < 5) { 
+                        r.y = r.targetY;
+                        r.state = 'stop';
+                        checkReelStop();
+                    } else {
+                        r.y += diff * 0.25; 
+                    }
+                }
+            });
+        }
+
+        window.stopReel = function(id) {
+            let r = reels[id];
+            if (r.state !== 'spin') return;
+            
+            btns[id].disabled = true;
+            activeReels--;
+
+            if (isCheatMode) {
+                findSevenAndSetTarget(r, 100); 
+                return;
+            }
+
+            // 速度低下に伴い、目押ししやすくなったので判定範囲はそのまま（3コマ）
+            let found = findSevenAndSetTarget(r, 3);
+            
+            if (!found) {
+                let nearestFrame = Math.ceil((r.y - 150) / SYMBOL_HEIGHT);
+                r.targetY = (nearestFrame * SYMBOL_HEIGHT) + 150;
+                r.slipFrames = 4;
+                r.state = 'slipping';
+            }
+        }
+
+        function findSevenAndSetTarget(r, maxSlipFrames) {
+            let totalH = SYMBOL_HEIGHT * REEL_STRIP.length;
+            let currentReelPos = r.y % totalH; 
+            
+            let floatIndex = (150 - currentReelPos) / 100;
+            while(floatIndex < 0) floatIndex += REEL_STRIP.length;
+            
+            let baseIndex = Math.floor(floatIndex); 
+            
+            for (let i = 0; i <= maxSlipFrames; i++) {
+                let idx = (baseIndex - i + REEL_STRIP.length * 2) % REEL_STRIP.length;
+                
+                if (REEL_STRIP[idx] === 0) { 
+                    let symbolY_now = ((idx * 100) + r.y) % totalH;
+                    if (symbolY_now > 150) symbolY_now -= totalH;
+                    
+                    let delta = 150 - symbolY_now;
+                    
+                    if (delta >= 0) {
+                        r.targetY = r.y + delta;
+                        r.slipFrames = i; 
+                        r.state = 'slipping';
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        function checkReelStop() {
+            if (activeReels === 0) calculateRoundScore();
+        }
+
+        function calculateRoundScore() {
+            let roundPoints = 0;
+            let allSeven = true;
+
+            reels.forEach(r => {
+                let totalH = SYMBOL_HEIGHT * REEL_STRIP.length;
+                let pos = (r.y % totalH);
+                let idxFloat = (150 - pos) / 100;
+                while(idxFloat < 0) idxFloat += REEL_STRIP.length;
+                let idx = Math.round(idxFloat) % REEL_STRIP.length;
+                
+                let symbol = REEL_STRIP[idx];
+
+                if (symbol === 0) { 
+                    let slip = r.slipFrames;
+                    if (slip === 0) roundPoints += 3000; 
+                    else if (slip <= 1) roundPoints += 1000;
+                    else if (slip <= 3) roundPoints += 300;
+                } else {
+                    allSeven = false;
+                }
+            });
+
+            if (allSeven) {
+                roundPoints += 1000; 
+                messageDisplay.innerText = "777 GET!!";
+                messageDisplay.style.color = "gold";
+            } else {
+                if (roundPoints > 0) messageDisplay.innerText = "惜しい！";
+                else {
+                    messageDisplay.innerText = "MISS...";
+                    messageDisplay.style.color = "#aaa";
+                }
+            }
+            
+            if (isCheatMode && allSeven) {
+                roundPoints = 10000; 
+                messageDisplay.innerText = "GOD MODE";
+            }
+
+            totalScore += roundPoints;
+            updateUI();
+            
+            setTimeout(() => {
+                currentRound++;
+                if (currentRound <= MAX_ROUNDS) {
+                    updateUI();
+                    messageDisplay.innerText = "次のラウンドへ";
+                    messageDisplay.style.color = "#00e5ff";
+                    startLever.disabled = false;
+                } else {
+                    showFinalResult();
+                }
+            }, 1000);
+        }
+
+        function showFinalResult() {
+            overlay.style.display = 'flex';
+            startMenu.style.display = 'none';
+            finalResultBox.style.display = 'block';
+            finalScoreVal.innerText = totalScore;
+            hiddenBtn.style.pointerEvents = 'auto';
+
+            if (totalScore > highScore) {
+                highScore = totalScore;
+                try{ localStorage.setItem('nashiyana_slot7_highscore', highScore); }catch(e){}
+                highScoreDisplay.innerText = `High: ${highScore}`;
+                newRecordMsg.style.display = 'block';
+            } else {
+                newRecordMsg.style.display = 'none';
+            }
+        }
+
+        function drawAllReels() {
+            reels.forEach((r, i) => drawReel(contexts[i], r.y));
+        }
+
+        function drawReel(ctx, y) {
+            ctx.clearRect(0, 0, 100, 300);
+            let totalH = SYMBOL_HEIGHT * REEL_STRIP.length;
+            
+            for (let i = 0; i < REEL_STRIP.length; i++) {
+                let symbolId = REEL_STRIP[i];
+                let drawY = (i * SYMBOL_HEIGHT) + y;
+                drawY = drawY % totalH;
+                if (drawY > totalH - 200) drawY -= totalH;
+                
+                if (drawY > -100 && drawY < 400) {
+                    drawSymbol(ctx, symbolId, drawY);
+                }
+            }
+        }
+
+        function drawSymbol(ctx, id, y) {
+            ctx.fillStyle = "#fff"; ctx.fillRect(5, y+5, 90, 90);
+            ctx.textAlign = "center"; ctx.textBaseline = "middle";
+
+            switch(SYMBOLS[id]) {
+                case '7':
+                    ctx.fillStyle = "red"; ctx.font = "bold 60px Arial"; ctx.fillText("7", 50, y + 50);
+                    ctx.strokeStyle = "gold"; ctx.lineWidth = 2; ctx.strokeText("7", 50, y + 50);
+                    break;
+                case 'YUKKIE':
+                    ctx.fillStyle = "#fce0c6"; ctx.beginPath(); ctx.arc(50, y+50, 30, 0, Math.PI*2); ctx.fill();
+                    ctx.fillStyle = "#333"; ctx.beginPath(); ctx.arc(50, y+45, 32, Math.PI, 0); ctx.fill();
+                    ctx.strokeStyle = "black"; ctx.lineWidth=2; ctx.strokeRect(35, y+45, 10, 5); ctx.strokeRect(55, y+45, 10, 5);
+                    ctx.fillStyle = "black"; ctx.font="12px Arial"; ctx.fillText("YUKKIE", 50, y+90);
+                    break;
+                case 'URBAN':
+                    ctx.fillStyle = "#4CAF50"; ctx.beginPath(); ctx.arc(50, y+50, 30, 0, Math.PI*2); ctx.fill();
+                    ctx.fillStyle = "#8D6E63"; ctx.fillRect(35, y+35, 30, 30);
+                    ctx.fillStyle = "black"; ctx.font="12px Arial"; ctx.fillText("URBAN", 50, y+90);
+                    break;
+                case 'BELL':
+                    ctx.fillStyle = "gold"; ctx.font = "bold 40px Arial"; ctx.fillText("🔔", 50, y + 50);
+                    break;
+                case 'CHERRY':
+                    ctx.fillStyle = "#d32f2f"; ctx.beginPath(); ctx.arc(35, y+60, 15, 0, Math.PI*2); ctx.fill();
+                    ctx.beginPath(); ctx.arc(65, y+60, 15, 0, Math.PI*2); ctx.fill();
+                    ctx.strokeStyle = "green"; ctx.lineWidth=3; ctx.beginPath(); ctx.moveTo(35, y+60); ctx.quadraticCurveTo(50, y+20, 65, y+60); ctx.stroke();
+                    break;
+            }
+            ctx.strokeStyle = "#ccc"; ctx.lineWidth = 1; ctx.strokeRect(0, y, 100, 100);
+        }
+    </script>
+</body>
+</html>
