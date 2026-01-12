@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>KEIRIN SPIRIT ABSOLUTE</title>
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Black+Ops+One&family=Roboto:wght@700&display=swap');
+    * { box-sizing: border-box; touch-action: manipulation; user-select: none; -webkit-tap-highlight-color: transparent; }
+    body { margin: 0; background: #050505; color: #fff; font-family: 'Roboto', sans-serif; height: 100vh; overflow: hidden; display: flex; flex-direction: column; align-items: center; }
+
+    #app { width: 100%; max-width: 480px; height: 100%; position: relative; background: #1a1a1a; display: flex; flex-direction: column; border: 2px solid #333; }
+
+    /* GAME VIEW */
+    #gameView { flex: 1; position: relative; overflow: hidden; background: #263238; }
+    canvas { display: block; width: 100%; height: 100%; }
+
+    /* HUD */
+    .hud { position: absolute; top: 0; left: 0; width: 100%; padding: 10px; pointer-events: none; z-index: 10; background: linear-gradient(to bottom, rgba(0,0,0,0.8), transparent); }
+    .hud-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+    .bar-container { flex: 1; height: 10px; background: #333; border: 1px solid #555; margin: 0 10px; transform: skewX(-20deg); overflow: hidden; }
+    .bar-fill { height: 100%; width: 100%; transform-origin: left; transition: width 0.1s; }
+    
+    .zone-container { height: 14px; border: 1px solid #fff; box-shadow: 0 0 10px #0277bd; }
+    .zone-fill { background: linear-gradient(90deg, #0288d1, #00e5ff); width: 0%; }
+    .zone-active { animation: pulse 0.1s infinite; background: linear-gradient(90deg, #d500f9, #ff1744); } 
+    @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.7; } 100% { opacity: 1; } }
+
+    .rank-big { font-family: 'Black Ops One'; font-size: 32px; color: #fff; text-shadow: 2px 2px 0 #000; }
+    .dist-text { font-family: 'Black Ops One'; font-size: 20px; color: #ff5252; }
+
+    /* GOD INDICATOR */
+    #godInd { 
+        position: absolute; top: 60px; left: 10px; 
+        font-family: 'Black Ops One'; font-size: 16px; color: #d500f9; 
+        text-shadow: 0 0 5px #fff; display: none; z-index: 15; 
+        animation: pulse 0.5s infinite;
+    }
+
+    /* CENTER MSG */
+    .center-msg { 
+        position: absolute; top: 35%; left: 50%; transform: translate(-50%, -50%); 
+        font-family: 'Black Ops One'; font-size: 50px; text-align: center;
+        text-shadow: 0 0 20px #fff; display: none; z-index: 20; color: gold; 
+        pointer-events: none;
+    }
+
+    /* SKIP BUTTON */
+    #btnSkip {
+        position: absolute; bottom: 20px; right: 20px;
+        background: #00e676; color: #000; border: 2px solid #fff;
+        padding: 10px 20px; border-radius: 30px; font-weight: bold; font-family: 'Black Ops One';
+        font-size: 18px; cursor: pointer; display: none; z-index: 30; box-shadow: 0 5px 15px rgba(0,0,0,0.5);
+    }
+    #btnSkip:active { transform: scale(0.95); }
+
+    /* CONTROLS */
+    #controls { height: 160px; background: #111; border-top: 4px solid #333; display: grid; grid-template-columns: 1fr 1.8fr 1fr; gap: 8px; padding: 10px; }
+    .btn { background: #333; border: 2px solid #555; border-radius: 8px; color: #aaa; font-size: 24px; display: flex; flex-direction: column; align-items: center; justify-content: center; transition: all 0.05s; }
+    .btn:active { background: #555; transform: scale(0.98); color: #fff; }
+    #btnSprint { background: #b71c1c; border-color: #ff5252; color: #fff; font-family: 'Black Ops One'; font-size: 24px; letter-spacing: 2px; }
+    #btnSprint:active { background: #ff1744; box-shadow: 0 0 15px #ff1744; }
+    .btn-label { font-size: 10px; margin-top: 5px; opacity: 0.7; font-family: sans-serif; }
+
+    /* MENU */
+    .menu { position: absolute; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.95); z-index:100; display:flex; flex-direction:column; align-items:center; overflow-y:auto; padding:20px 0; }
+    .hidden { display: none !important; }
+
+    .title-area { font-family:'Black Ops One'; font-size:36px; color:#00e676; text-shadow:0 0 10px #00e676; margin-bottom:5px; user-select: none; cursor: pointer; padding: 10px; }
+    .title-area:active { transform: scale(0.98); color: #b9f6ca; }
+
+    .panel { width: 90%; background: #222; border: 1px solid #444; border-radius: 8px; padding: 15px; margin-bottom: 15px; box-shadow: 0 5px 15px rgba(0,0,0,0.5); }
+    .panel-head { font-family: 'Black Ops One'; font-size: 18px; color: #00e676; border-bottom: 1px solid #444; padding-bottom: 5px; margin-bottom: 10px; display: flex; justify-content: space-between; }
+    
+    .stat-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: 14px; }
+    .upgrade-btn { background: #0277bd; border: none; color: #fff; padding: 4px 12px; border-radius: 4px; font-weight: bold; cursor: pointer; }
+    .upgrade-btn:disabled { background: #444; color: #666; }
+
+    .big-btn { width: 85%; padding: 15px; margin: 10px; background: linear-gradient(180deg, #00e676, #00c853); color: #000; border: none; border-radius: 6px; font-family: 'Black Ops One'; font-size: 22px; cursor: pointer; box-shadow: 0 4px #006064; }
+    .big-btn:active { transform: translateY(4px); box-shadow: 0 0 #006064; }
+
+    .race-item { background: #333; padding: 12px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; border-radius: 4px; border-left: 5px solid #555; cursor: pointer; transition: background 0.2s; }
+    .race-item:active { background: #444; }
+    .race-item.locked { opacity: 0.4; pointer-events: none; border-left-color: #333; }
+    .g-tag { font-weight: bold; padding: 2px 6px; border-radius: 3px; font-size: 12px; margin-right: 8px; color: #000; }
+    
+    #notify { position: absolute; top: 60px; left: 50%; transform: translateX(-50%); background: #00c853; color: #000; font-weight: bold; padding: 8px 20px; border-radius: 20px; font-size: 12px; pointer-events: none; opacity: 0; transition: opacity 0.5s; z-index: 200; box-shadow: 0 2px 10px rgba(0,255,0,0.3); }
+    
+    @keyframes secretFlash { 0% { background: rgba(224, 64, 251, 0); } 50% { background: rgba(224, 64, 251, 0.5); } 100% { background: rgba(224, 64, 251, 0); } }
+    .flash-anim { animation: secretFlash 0.3s ease-out; }
+
+</style>
+</head>
+<body>
+
+<div id="app">
+    <div id="notify">DATA SAVED</div>
+
+    <div id="gameView">
+        <canvas id="cvs"></canvas>
+        
+        <div class="hud">
+            <div class="hud-row">
+                <div class="rank-big" id="uiRankDisplay">1位</div>
+                <div class="dist-text" id="uiDist">2000m</div>
+            </div>
+            <div class="hud-row" style="margin-top:5px;">
+                <span style="font-size:10px; width:40px;">STM</span>
+                <div class="bar-container"><div class="bar-fill" id="uiStam" style="background:#00e676;"></div></div>
+            </div>
+            <div class="hud-row">
+                <span style="font-size:10px; width:40px; color:#00e5ff; font-weight:bold;">ZONE</span>
+                <div class="bar-container zone-container"><div class="bar-fill zone-fill" id="uiZone"></div></div>
+            </div>
+        </div>
+
+        <div id="godInd">★ GOD MODE ★</div>
+        <div class="center-msg" id="msgAnim">ZONE!!</div>
+        <button id="btnSkip" onclick="Game.forceFinish()">SKIP >></button>
+    </div>
+
+    <div id="controls">
+        <div class="btn" id="btnL">◀<span class="btn-label">LEFT</span></div>
+        <div class="btn" id="btnSprint">SPRINT<span class="btn-label">DASH!!</span></div>
+        <div class="btn" id="btnR">▶<span class="btn-label">RIGHT</span></div>
+    </div>
+
+    <div id="homeScreen" class="menu">
+        <div class="title-area" onclick="Game.secretTap()">KEIRIN<br>SPIRIT</div>
+        <div style="font-size:12px; color:#aaa; margin-bottom:20px; letter-spacing:2px;">ABSOLUTE EDITION</div>
+        
+        <div class="panel">
+            <div class="panel-head">
+                <span>RANK: <span id="pRank" style="color:#ff5252;">A3</span></span>
+                <span>¥ <span id="pMoney">0</span></span>
+            </div>
+            <div style="font-size:11px; color:#aaa; margin-bottom:5px;">BODY (¥100k) <span id="costFree" style="color:#e040fb; display:none; font-weight:bold;">[GOD: FREE]</span></div>
+            <div class="stat-row">
+                <span>🦵 脚力</span>
+                <span>Lv.<span id="vPow">0</span> <button class="upgrade-btn" onclick="Game.train('pow')">UP</button></span>
+            </div>
+            <div class="stat-row">
+                <span>🫁 持久</span>
+                <span>Lv.<span id="vSta">0</span> <button class="upgrade-btn" onclick="Game.train('sta')">UP</button></span>
+            </div>
+            <div class="stat-row">
+                <span>❤️‍🔥 精神</span>
+                <span>Lv.<span id="vGut">0</span> <button class="upgrade-btn" onclick="Game.train('gut')">UP</button></span>
+            </div>
+            <div style="border-top:1px dashed #444; margin:10px 0;"></div>
+            <div style="font-size:11px; color:#aaa; margin-bottom:5px;">GEAR (¥300k)</div>
+            <div class="stat-row">
+                <span>🚲 フレーム</span>
+                <span>Gr.<span id="vFrame">0</span> <button class="upgrade-btn" style="background:#ff9800;" onclick="Game.buyGear('frame')">BUY</button></span>
+            </div>
+            <div class="stat-row">
+                <span>⚙️ ギア</span>
+                <span>Gr.<span id="vGear">0</span> <button class="upgrade-btn" style="background:#ff9800;" onclick="Game.buyGear('gear')">BUY</button></span>
+            </div>
+        </div>
+
+        <button class="big-btn" onclick="Game.showRaces()">ENTER RACE</button>
+        <div style="font-size:10px; color:#555; margin-top:20px; cursor:pointer; text-decoration:underline;" onclick="Game.reset()">RESET DATA</div>
+    </div>
+
+    <div id="raceScreen" class="menu hidden">
+        <div style="font-family:'Black Ops One'; font-size:24px; margin-bottom:20px;">SELECT RACE</div>
+        <div style="width:90%; flex:1; overflow-y:auto;" id="raceList"></div>
+        <button class="big-btn" style="background:#444; color:#fff; box-shadow:none;" onclick="Game.toHome()">BACK</button>
+    </div>
+
+    <div id="resultScreen" class="menu hidden">
+        <div style="font-family:'Black Ops One'; font-size:60px; color:gold; margin-top:20px; text-shadow:0 0 20px #000;" id="resRank">1位</div>
+        <div style="font-size:18px; color:#aaa; margin-bottom:30px;">FINISH</div>
+        <div class="panel" style="text-align:center;">
+            <div style="font-size:12px; color:#aaa;">PRIZE MONEY</div>
+            <div style="font-size:32px; font-weight:bold; color:#00e676;">+¥<span id="resPrize">0</span></div>
+            <div id="resRankUp" style="color:#0288d1; font-weight:bold; margin-top:10px; font-size:14px;"></div>
+        </div>
+        <button class="big-btn" onclick="Game.toHome()">CONTINUE</button>
+    </div>
+</div>
+
+<script>
+/* === CONSTANTS === */
+const CVS = document.getElementById('cvs');
+const CTX = CVS.getContext('2d');
+const W=360, H=640;
+CVS.width=W; CVS.height=H;
+
+const COLS = ["#fff","#000","#c62828","#1565c0","#fdd835","#2e7d32","#ef6c00","#f8bbd0","#d1c4e9"];
+const TCOLS = ["#000","#fff","#fff","#fff","#000","#fff","#fff","#000","#000"];
+const RANKS = ["A3","A2","A1","S2","S1","SS"];
+
+const RACES = [
+    {n:"チャレンジ予選", g:"F2", m:0, len:1600, y:20, ai:30, c:"#fff"},
+    {n:"A級 決勝戦",    g:"F1", m:1, len:2000, y:50, ai:50, c:"#4caf50"},
+    {n:"S級 シリーズ",   g:"F1", m:2, len:2000, y:100, ai:70, c:"#4caf50"},
+    {n:"記念競輪 (G3)",  g:"G3", m:3, len:2400, y:300, ai:85, c:"#ff9800"},
+    {n:"特別競輪 (G1)",  g:"G1", m:4, len:2800, y:1000, ai:100, c:"#d32f2f"},
+    {n:"KEIRIN GP",     g:"GP", m:5, len:2800, y:3000, ai:120, c:"gold"}
+];
+
+let P = {
+    rank: 0, money: 500,
+    pow: 20, sta: 20, gut: 20,
+    frame: 0, gear: 0,
+    cheat: false,
+    exp: 0
+};
+
+/* === GAME ENGINE === */
+const Game = {
+    st: 'boot',
+    racers: [],
+    camY: 0,
+    raceLen: 2000,
+    currentRaceIdx: 0, // バグ回避のためID保存
+    sprint: false,
+    mx: 0,
+    
+    // Secret Tap Logic
+    tapCount: 0,
+    tapTimer: null,
+
+    secretTap() {
+        this.tapCount++;
+        clearTimeout(this.tapTimer);
+        this.tapTimer = setTimeout(() => this.tapCount = 0, 400); 
+        if (this.tapCount >= 5) { this.toggleCheat(); this.tapCount = 0; }
+    },
+
+    toggleCheat() {
+        P.cheat = !P.cheat;
+        this.save();
+        let app = document.getElementById('app');
+        app.classList.add('flash-anim');
+        setTimeout(() => app.classList.remove('flash-anim'), 300);
+        let msg = document.getElementById('notify');
+        msg.innerText = P.cheat ? "GOD MODE ON" : "GOD MODE OFF";
+        msg.style.background = "#d500f9";
+        msg.style.opacity = 1;
+        setTimeout(() => { msg.style.opacity = 0; msg.innerText = "DATA SAVED"; msg.style.background = "#00c853"; }, 2000);
+        this.upUI();
+    },
+
+    save() {
+        try {
+            localStorage.setItem('keirin_abs', JSON.stringify(P));
+            let n = document.getElementById('notify');
+            if(n.innerText == "DATA SAVED") { n.style.opacity=1; setTimeout(()=>n.style.opacity=0, 1500); }
+        } catch(e) { console.log("Save error (Private Mode?)"); }
+    },
+    load() {
+        try {
+            let d = localStorage.getItem('keirin_abs');
+            if(d) { P = {...P, ...JSON.parse(d)}; }
+        } catch(e) { console.log("Load error"); }
+        this.upUI();
+        document.getElementById('homeScreen').classList.remove('hidden');
+    },
+    reset() {
+        if(confirm("データを完全に削除しますか？")) {
+            try { localStorage.removeItem('keirin_abs'); } catch(e){}
+            location.reload();
+        }
+    },
+
+    upUI() {
+        document.getElementById('pRank').innerText = RANKS[P.rank];
+        document.getElementById('pMoney').innerText = P.money.toLocaleString();
+        document.getElementById('vPow').innerText = P.pow;
+        document.getElementById('vSta').innerText = P.sta;
+        document.getElementById('vGut').innerText = P.gut;
+        document.getElementById('vFrame').innerText = P.frame;
+        document.getElementById('vGear').innerText = P.gear;
+        let free = document.getElementById('costFree');
+        free.style.display = P.cheat ? "inline" : "none";
+    },
+    train(t) {
+        let cost = P.cheat ? 0 : 100;
+        if(P.money>=cost && P[t]<100) { P.money-=cost; P[t]+=5; this.save(); this.upUI(); }
+    },
+    buyGear(t) {
+        let cost = P.cheat ? 0 : 300;
+        if(P.money>=cost && P[t]<10) { P.money-=cost; P[t]+=1; this.save(); this.upUI(); }
+    },
+    toHome() {
+        this.upUI();
+        document.querySelectorAll('.menu').forEach(e=>e.classList.add('hidden'));
+        document.getElementById('homeScreen').classList.remove('hidden');
+    },
+    showRaces() {
+        document.getElementById('homeScreen').classList.add('hidden');
+        document.getElementById('raceScreen').classList.remove('hidden');
+        let el = document.getElementById('raceList');
+        el.innerHTML = "";
+        RACES.forEach((r,i)=>{
+            let lock = P.rank < r.m; 
+            let cls = lock ? "locked" : "";
+            el.innerHTML += `<div class="race-item ${cls}" style="border-left-color:${r.c}" onclick="Game.start(${i})">
+                <div><span class="g-tag" style="background:${r.c}">${r.g}</span> ${r.n}</div><div style="font-weight:bold;">¥${r.y}k</div>
+            </div>`;
+        });
+    },
+
+    // --- RACE ---
+    start(rid) {
+        this.currentRaceIdx = rid;
+        let rd = RACES[rid];
+        this.raceLen = rd.len;
+        this.racers = [];
+        this.st = 'race';
+        
+        let pIdx = Math.floor(Math.random()*9);
+        
+        for(let i=0; i<9; i++) {
+            let isP = (i==pIdx);
+            let base = isP ? 0 : rd.ai + (Math.random()*15 - 7);
+            
+            let pow = isP ? (P.pow + P.frame*5) : base;
+            let sta = isP ? (P.sta + P.gear*5) : base;
+            let gut = isP ? P.gut : base;
+
+            this.racers.push({
+                id: i+1, isP: isP,
+                x: 60 + (Math.floor(i/3)*100), 
+                y: - (i%3) * 80,
+                sp: 0,
+                maxSp: 15 + (pow * 0.18),
+                st: 1000 + (sta * 25), maxSt: 1000 + (sta * 25),
+                gut: gut,
+                zone: 0, zoneMode: false,
+                state: 0 // 0:run, 1:goal
+            });
+        }
+        
+        document.getElementById('raceScreen').classList.add('hidden');
+        document.getElementById('msgAnim').style.display='none';
+        document.getElementById('btnSkip').style.display='none';
+        document.getElementById('godInd').style.display = P.cheat ? 'block' : 'none';
+        this.loop();
+    },
+
+    loop() {
+        if(this.st != 'race') return;
+        requestAnimationFrame(()=>this.loop());
+
+        CTX.fillStyle = "#263238"; CTX.fillRect(0,0,W,H);
+        
+        let p = this.racers.find(r=>r.isP);
+        let camTarget = -p.y + H*0.6;
+        if(p.state==1) camTarget = this.camY; // Lock cam on goal
+        this.camY += (camTarget - this.camY) * 0.1;
+
+        // 計算
+        let rankSort = [...this.racers].sort((a,b)=>a.y - b.y);
+
+        this.racers.forEach(r => {
+            if(r.state==1) { r.y -= r.sp; return; } // ゴール後は慣性
+
+            // Cheat
+            if(r.isP && P.cheat) { r.st = r.maxSt; r.zone = 100; r.zoneMode = true; r.gut = 999; }
+
+            // Draft check
+            let isDraft = false;
+            for(let o of this.racers) {
+                if(r===o) continue;
+                if(o.y < r.y && o.y > r.y - 160 && Math.abs(o.x - r.x) < 30) isDraft = true;
+            }
+
+            // Logic
+            if(r.zoneMode) {
+                if(!P.cheat) { r.zone -= 0.5; if(r.zone <= 0) r.zoneMode = false; }
+            } else if(isDraft) {
+                if(r.zone < 100) r.zone += 0.4;
+            }
+
+            let wind = (r.sp * r.sp * 0.05);
+            if(isDraft) r.st += 1.0; else r.st -= Math.max(0.5, wind);
+            if(r.st > r.maxSt) r.st = r.maxSt;
+
+            let targetSp = 0;
+            let distRem = this.raceLen - (-r.y/10);
+            
+            if(distRem > 600) targetSp = r.maxSp * 0.6;
+            else if(distRem > 300) targetSp = r.maxSp * 0.9;
+            else targetSp = r.maxSp * 1.1;
+
+            if(r.isP) {
+                let boost = P.cheat ? 1.5 : 1.0;
+                if(r.zone >= 100 && this.sprint) r.zoneMode = true;
+                if(this.sprint) {
+                    if(r.zoneMode) targetSp = r.maxSp * 1.4 * boost;
+                    else if(r.st > 0) { targetSp = r.maxSp * 1.2; r.st -= 4.0; }
+                    else targetSp = r.maxSp * 0.6;
+                }
+                r.x += this.mx * 3.5;
+            } else {
+                if(distRem < 400 && r.st > 0) { targetSp = r.maxSp * 1.1; r.st -= 3.0; }
+                if(r.st <= 0) targetSp = 5;
+            }
+
+            if(r.sp < targetSp) r.sp += 0.15; else r.sp *= 0.98;
+            if(!r.zoneMode && r.st <= 0) r.sp *= 0.96;
+            if(r.sp > 40) r.sp = 40;
+
+            // Collision
+            if(r.x < 30) r.x = 30; if(r.x > W-30) r.x = W-30;
+            for(let o of this.racers) {
+                if(r===o) continue;
+                if(Math.abs(r.x - o.x) < 22 && Math.abs(r.y - o.y) < 40) {
+                    let pushDir = (r.x - o.x) > 0 ? 1 : -1;
+                    let powerRatio = r.gut / (o.gut + 1);
+                    if(powerRatio > 1.0) { o.x -= pushDir * 2; o.sp *= 0.95; } 
+                    else { r.x += pushDir * 2; r.sp *= 0.95; }
+                }
+            }
+
+            r.y -= r.sp;
+            if(-r.y/10 >= this.raceLen) r.state = 1;
+        });
+
+        // 自分がゴールしたらSKIPボタン表示
+        if(p.state == 1 && document.getElementById('btnSkip').style.display == 'none') {
+            document.getElementById('btnSkip').style.display = 'block';
+        }
+
+        // Draw Env
+        let scr = this.camY % 100;
+        CTX.strokeStyle = "rgba(255,255,255,0.2)"; CTX.lineWidth = 2;
+        CTX.beginPath(); CTX.moveTo(30,0); CTX.lineTo(30,H); CTX.moveTo(W-30,0); CTX.lineTo(W-30,H); CTX.stroke();
+        for(let i=-1; i<10; i++) {
+            let ly = i*100 + scr;
+            CTX.beginPath(); CTX.moveTo(30,ly); CTX.lineTo(W-30,ly); CTX.stroke();
+        }
+        let gy = -(this.raceLen*10) + this.camY;
+        if(gy > -100 && gy < H) {
+            CTX.fillStyle = "#fff"; CTX.fillRect(30, gy, W-60, 20);
+            CTX.fillStyle = "#000"; for(let k=0; k<10; k++) if(k%2==0) CTX.fillRect(30+k*30, gy, 30, 20);
+        }
+
+        // Draw Racers
+        let drawSort = [...this.racers].sort((a,b)=>b.y - a.y);
+        drawSort.forEach(r => {
+            let dy = r.y + this.camY;
+            if(dy < -50 || dy > H+50) return;
+
+            CTX.fillStyle = "rgba(0,0,0,0.5)";
+            CTX.beginPath(); CTX.ellipse(r.x, dy+10, 10, 5, 0, 0, Math.PI*2); CTX.fill();
+
+            if(r.zoneMode) {
+                CTX.fillStyle = P.cheat ? "rgba(224, 64, 251, 0.7)" : "rgba(255,215,0, 0.6)";
+                CTX.beginPath(); CTX.arc(r.x, dy, 25, 0, Math.PI*2); CTX.fill();
+            } else if(r.draft) {
+                CTX.fillStyle = "rgba(0,229,255, 0.3)";
+                CTX.beginPath(); CTX.arc(r.x, dy, 20, 0, Math.PI*2); CTX.fill();
+            }
+
+            CTX.fillStyle = COLS[r.id-1];
+            CTX.fillRect(r.x-7, dy-15, 14, 30);
+            CTX.beginPath(); CTX.arc(r.x, dy, 7, 0, Math.PI*2); CTX.fill();
+            CTX.strokeStyle = "#000"; CTX.lineWidth=1; CTX.stroke();
+
+            if(r.isP) {
+                CTX.fillStyle = P.cheat ? "#e040fb" : "#d32f2f";
+                CTX.beginPath(); CTX.moveTo(r.x, dy-35); CTX.lineTo(r.x-8, dy-50); CTX.lineTo(r.x+8, dy-50); CTX.fill();
+            }
+            CTX.fillStyle = TCOLS[r.id-1];
+            CTX.font = "bold 12px sans-serif"; CTX.textAlign = "center";
+            CTX.fillText(r.id, r.x, dy+4);
+        });
+
+        // UI
+        let pRank = rankSort.findIndex(r=>r.isP) + 1;
+        document.getElementById('uiRankDisplay').innerText = pRank + "位";
+        
+        let dist = Math.floor(this.raceLen - (-p.y/10)); if(dist<0)dist=0;
+        document.getElementById('uiDist').innerText = dist + "m";
+        document.getElementById('uiStam').style.width = Math.max(0, (p.st / p.maxSt * 100)) + "%";
+        
+        let zEl = document.getElementById('uiZone');
+        zEl.style.width = p.zone + "%";
+        zEl.className = p.zoneMode ? "bar-fill zone-fill zone-active" : "bar-fill zone-fill";
+
+        let msg = document.getElementById('msgAnim');
+        if(p.zoneMode) { msg.style.display="block"; msg.innerText="ZONE!!"; msg.style.color=P.cheat?"#e040fb":"cyan"; }
+        else if(dist < 600 && dist > 100) { msg.style.display="block"; msg.innerText="BELL!"; msg.style.color="gold"; }
+        else if(dist <= 100 && dist > 0) { msg.style.display="block"; msg.innerText="GOAL!"; msg.style.color="red"; }
+        else msg.style.display="none";
+
+        if(this.racers.every(r=>r.state==1)) this.finish(rankSort);
+    },
+
+    forceFinish() {
+        // 全員ゴールしたことにする (現在のY座標順で順位確定)
+        let rankSort = [...this.racers].sort((a,b)=>a.y - b.y);
+        this.finish(rankSort);
+    },
+
+    finish(rank) {
+        this.st = 'result';
+        let pRank = rank.findIndex(r=>r.isP) + 1;
+        let rd = RACES[this.currentRaceIdx]; // Use Saved ID
+        
+        let prize = 0;
+        if(pRank==1) prize = rd.y;
+        else if(pRank==2) prize = Math.floor(rd.y*0.5);
+        else if(pRank==3) prize = Math.floor(rd.y*0.3);
+        else prize = 1;
+
+        P.money += prize;
+        
+        let msg = "";
+        if(pRank <= 3) {
+            P.exp++;
+            if(P.exp >= 2 && P.rank < 5) { P.rank++; P.exp=0; msg = "RANK UP!!"; }
+        }
+
+        this.save();
+        document.getElementById('resRank').innerText = pRank + "位";
+        document.getElementById('resPrize').innerText = prize;
+        document.getElementById('resRankUp').innerText = msg;
+        document.getElementById('resultScreen').classList.remove('hidden');
+    }
+};
+
+/* === INPUT === */
+const bL=document.getElementById('btnL');
+const bR=document.getElementById('btnR');
+const bS=document.getElementById('btnSprint');
+
+const bind = (el, d, u) => {
+    el.addEventListener('mousedown', d); el.addEventListener('mouseup', u); el.addEventListener('mouseleave', u);
+    el.addEventListener('touchstart', (e)=>{e.preventDefault(); d();}); el.addEventListener('touchend', (e)=>{e.preventDefault(); u();});
+};
+
+bind(bL, ()=>Game.mx=-1, ()=>Game.mx=0);
+bind(bR, ()=>Game.mx=1, ()=>Game.mx=0);
+bind(bS, ()=>Game.sprint=true, ()=>Game.sprint=false);
+
+Game.load();
+
+</script>
+</body>
+</html>
